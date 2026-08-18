@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <meta name="description" content="Registro de Remanentes de Pirate Galaxy">
+  <title>Remnant Log · Pirate Galaxy</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">PG</div>
+      <div>
+        <span class="eyebrow">PIRATE GALAXY</span>
+        <h1>Remnant Log</h1>
+      </div>
+    </div>
+    <div class="server-clock">
+      <span class="status-dot"></span>
+      <div>
+        <small>Hora de España</small>
+        <strong id="spainClock">--:--:--</strong>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">REGISTRO DE REMNANT CARRIERS</span>
+        <h2>Captura drops. Conserva evidencia. Detecta patrones.</h2>
+        <p>Registra cada combinación de remanente, clase, plano y tecnología con fecha/hora de España y una captura opcional de evidencia.</p>
+      </div>
+      <div class="hero-chip">
+        <span>Timezone</span>
+        <strong>Europe/Madrid</strong>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="Resumen">
+      <article class="metric">
+        <span>Registros hoy</span>
+        <strong id="metricToday">0</strong>
+        <small>según hora de España</small>
+      </article>
+      <article class="metric">
+        <span>XC</span>
+        <strong id="metricXC">0</strong>
+        <small>remanentes registrados</small>
+      </article>
+      <article class="metric">
+        <span>SC</span>
+        <strong id="metricSC">0</strong>
+        <small>remanentes registrados</small>
+      </article>
+      <article class="metric">
+        <span>Total histórico</span>
+        <strong id="metricTotal">0</strong>
+        <small>guardado en este navegador</small>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <article class="panel entry-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">NUEVO REGISTRO</span>
+            <h3>Registrar remanente</h3>
+          </div>
+          <span class="badge">Data entry</span>
+        </div>
+
+        <div class="field-group">
+          <label>Tipo de remanente</label>
+          <div class="segmented" id="remnantTypeGroup">
+            <button type="button" class="segment active" data-value="XC">XC</button>
+            <button type="button" class="segment" data-value="SC">SC</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="classSelect">Clase</label>
+          <select id="classSelect"></select>
+        </div>
+
+        <div class="field-group">
+          <label for="blueprintSelect">Tipo de plano</label>
+          <select id="blueprintSelect"></select>
+        </div>
+
+        <div class="field-group">
+          <label>Tecnología</label>
+          <div id="technologyGroup" class="tech-grid"></div>
+        </div>
+
+        <div class="field-group">
+          <label for="evidenceInput">Foto de evidencia <span class="optional">opcional</span></label>
+          <label class="upload-box" for="evidenceInput">
+            <input id="evidenceInput" type="file" accept="image/*">
+            <div id="uploadPlaceholder">
+              <span class="upload-icon">＋</span>
+              <strong>Seleccionar captura</strong>
+              <small>JPG, PNG o WebP · se comprime antes de guardar</small>
+            </div>
+            <div id="imagePreviewWrap" class="image-preview-wrap hidden">
+              <img id="imagePreview" alt="Vista previa de la evidencia">
+              <button type="button" id="removeEvidenceBtn" class="remove-image">Quitar imagen</button>
+            </div>
+          </label>
+        </div>
+
+        <button type="button" id="saveBtn" class="primary-btn">
+          <span>Registrar remanente</span>
+          <span>→</span>
+        </button>
+        <p id="formFeedback" class="feedback" aria-live="polite"></p>
+      </article>
+
+      <article class="panel recent-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">ACTIVIDAD</span>
+            <h3>Últimos registros</h3>
+          </div>
+          <span id="recentCount" class="badge">0 registros</span>
+        </div>
+        <div id="recentList" class="recent-list"></div>
+      </article>
+    </section>
+
+    <section class="panel history-panel">
+      <div class="panel-head history-head">
+        <div>
+          <span class="eyebrow">HISTORIAL</span>
+          <h3>Remanentes registrados</h3>
+        </div>
+        <button type="button" id="exportBtn" class="secondary-btn">Exportar CSV</button>
+      </div>
+
+      <div class="filters">
+        <label>
+          <span>Buscar</span>
+          <input id="searchInput" type="search" placeholder="Plano, clase, tecnología...">
+        </label>
+        <label>
+          <span>Tipo</span>
+          <select id="filterType">
+            <option value="">Todos</option>
+            <option value="XC">XC</option>
+            <option value="SC">SC</option>
+          </select>
+        </label>
+        <label>
+          <span>Clase</span>
+          <select id="filterClass">
+            <option value="">Todas</option>
+          </select>
+        </label>
+        <label>
+          <span>Tecnología</span>
+          <select id="filterTechnology">
+            <option value="">Todas</option>
+            <option value="Normal">Normal</option>
+            <option value="Rápida">Rápida</option>
+            <option value="Duradera">Duradera</option>
+            <option value="Potente">Potente</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha / hora España</th>
+              <th>Tipo</th>
+              <th>Clase</th>
+              <th>Plano</th>
+              <th>Tecnología</th>
+              <th>Evidencia</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <div id="emptyHistory" class="empty-state hidden">No hay registros que coincidan con los filtros.</div>
+    </section>
+  </main>
+
+  <dialog id="evidenceDialog">
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">EVIDENCIA</span>
+        <h3 id="dialogTitle">Captura</h3>
+      </div>
+      <button type="button" id="closeDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+    <img id="dialogImage" alt="Evidencia del remanente">
+  </dialog>
+
+  <footer>
+    Remnant Log · Pirate Galaxy · Datos almacenados localmente en el navegador.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
