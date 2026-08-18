@@ -101,3 +101,14 @@ GitHub Pages puede continuar desplegando desde:
 ```text
 main / (root)
 ```
+
+
+## Paginación del historial (V3.2)
+
+- `Últimos registros`: consulta independiente con los 6 más recientes.
+- `Historial`: paginación real desde Supabase, 20 registros por página por defecto.
+- Tamaños disponibles: 20, 50 o 100 registros por página.
+- Los filtros y la búsqueda se aplican en Supabase antes de paginar.
+- Las métricas se calculan con consultas de conteo y no dependen de la página visible.
+- La exportación CSV obtiene todos los registros que coinciden con los filtros, no solo la página actual.
+- `@supabase/supabase-js` está fijado en `2.111.0` en el CDN.

@@ -246,3 +246,50 @@ body.is-admin #entryBadge {
   45% { transform: scale(1.008); }
   100% { transform: scale(1); }
 }
+
+
+.pagination-bar {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.page-size-control,
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.page-size-control select {
+  min-width: 74px;
+}
+
+.pagination-info strong {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.pagination-info .secondary-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 680px) {
+  .pagination-bar,
+  .pagination-info {
+    width: 100%;
+  }
+
+  .pagination-info {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+}

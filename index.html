@@ -219,6 +219,25 @@
         </table>
       </div>
       <div id="emptyHistory" class="empty-state hidden">No hay registros que coincidan con los filtros.</div>
+
+      <div class="pagination-bar" aria-label="Paginación del historial">
+        <label class="page-size-control">
+          <span>Mostrar</span>
+          <select id="pageSizeSelect">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <span>por página</span>
+        </label>
+
+        <div class="pagination-info">
+          <span id="pageRange">0 de 0</span>
+          <button type="button" id="prevPageBtn" class="secondary-btn">← Anterior</button>
+          <strong id="pageIndicator">Página 1 de 1</strong>
+          <button type="button" id="nextPageBtn" class="secondary-btn">Siguiente →</button>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -324,7 +343,7 @@
     Remnant Log · Pirate Galaxy · GitHub Pages + Supabase
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

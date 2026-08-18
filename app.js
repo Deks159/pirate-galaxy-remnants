@@ -88,6 +88,11 @@ const els = {
   filterType: $("#filterType"),
   filterClass: $("#filterClass"),
   filterTechnology: $("#filterTechnology"),
+  pageSizeSelect: $("#pageSizeSelect"),
+  prevPageBtn: $("#prevPageBtn"),
+  nextPageBtn: $("#nextPageBtn"),
+  pageRange: $("#pageRange"),
+  pageIndicator: $("#pageIndicator"),
   exportBtn: $("#exportBtn"),
   metricToday: $("#metricToday"),
   metricXC: $("#metricXC"),
@@ -132,10 +137,16 @@ let selectedTechnology = "Normal";
 let evidenceBlob = null;
 let evidencePreviewUrl = null;
 let records = [];
+let recentRecords = [];
 let formFields = [];
 let currentUser = null;
 let editingRecordId = null;
 let editingOriginalEvidencePath = null;
+let currentPage = 1;
+let pageSize = 20;
+let historyTotal = 0;
+let metrics = { today: 0, xc: 0, sc: 0, total: 0 };
+let searchDebounceTimer = null;
 
 function isSuperAdmin(user = currentUser) {
   return user?.app_metadata?.role === "super_admin";
@@ -176,6 +187,59 @@ function spainTime(value) {
 function spainDateKey(value = new Date()) {
   const p = spainParts(new Date(value));
   return `${p.year}-${p.month}-${p.day}`;
+}
+
+function timeZoneOffsetMs(date, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(date).map(p => [p.type, p.value])
+  );
+
+  const representedAsUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+
+  return representedAsUtc - date.getTime();
+}
+
+function zonedLocalMidnightToUtc(year, month, day, timeZone = "Europe/Madrid") {
+  const targetUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let guess = targetUtc;
+
+  for (let i = 0; i < 3; i += 1) {
+    const offset = timeZoneOffsetMs(new Date(guess), timeZone);
+    const adjusted = targetUtc - offset;
+    if (Math.abs(adjusted - guess) < 1000) return new Date(adjusted);
+    guess = adjusted;
+  }
+
+  return new Date(guess);
+}
+
+function spainTodayUtcRange() {
+  const p = spainParts();
+  const year = Number(p.year);
+  const month = Number(p.month);
+  const day = Number(p.day);
+
+  const start = zonedLocalMidnightToUtc(year, month, day);
+  const nextLocalDate = new Date(Date.UTC(year, month - 1, day + 1));
+  const end = zonedLocalMidnightToUtc(
+    nextLocalDate.getUTCFullYear(),
+    nextLocalDate.getUTCMonth() + 1,
+    nextLocalDate.getUTCDate()
+  );
+
+  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 function updateClock() {
@@ -377,38 +441,121 @@ async function loadFormFields() {
   renderFieldsManager();
 }
 
-async function loadRecords() {
+function sanitizePostgrestSearch(value) {
+  return value
+    .replace(/[,*()%]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function applyHistoryFilters(query) {
+  if (els.filterType.value) query = query.eq("remnant_type", els.filterType.value);
+  if (els.filterClass.value) query = query.eq("class_name", els.filterClass.value);
+  if (els.filterTechnology.value) query = query.eq("technology", els.filterTechnology.value);
+
+  const term = sanitizePostgrestSearch(els.searchInput.value);
+  if (term) {
+    const searchableDynamicFields = formFields.filter(field =>
+      field.active && ["text", "textarea", "select"].includes(field.field_type)
+    );
+
+    const conditions = [
+      `remnant_type.ilike.*${term}*`,
+      `class_name.ilike.*${term}*`,
+      `blueprint.ilike.*${term}*`,
+      `technology.ilike.*${term}*`,
+      ...searchableDynamicFields.map(field =>
+        `extra_data->>${field.field_key}.ilike.*${term}*`
+      )
+    ];
+
+    query = query.or(conditions.join(","));
+  }
+
+  return query;
+}
+
+async function loadHistoryPage() {
+  const from = (currentPage - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = sb
+    .from("remnant_records")
+    .select("*", { count: "exact" });
+
+  query = applyHistoryFilters(query)
+    .order("created_at", { ascending: false })
+    .range(from, to);
+
+  const { data, count, error } = await query;
+  if (error) throw error;
+
+  historyTotal = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
+
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+    return loadHistoryPage();
+  }
+
+  records = data || [];
+}
+
+async function loadRecentRecords() {
   const { data, error } = await sb
     .from("remnant_records")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(6);
 
   if (error) throw error;
-  records = data || [];
+  recentRecords = data || [];
+}
+
+async function countRecords(configureQuery = query => query) {
+  let query = sb
+    .from("remnant_records")
+    .select("id", { count: "exact", head: true });
+
+  query = configureQuery(query);
+  const { count, error } = await query;
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function loadMetrics() {
+  const { start, end } = spainTodayUtcRange();
+
+  const [total, xc, sc, today] = await Promise.all([
+    countRecords(),
+    countRecords(query => query.eq("remnant_type", "XC")),
+    countRecords(query => query.eq("remnant_type", "SC")),
+    countRecords(query => query.gte("created_at", start).lt("created_at", end))
+  ]);
+
+  metrics = { total, xc, sc, today };
+}
+
+async function refreshDashboardData() {
+  await Promise.all([
+    loadHistoryPage(),
+    loadRecentRecords(),
+    loadMetrics()
+  ]);
   renderAll();
 }
 
-function filteredRecords() {
-  const term = els.searchInput.value.trim().toLocaleLowerCase("es");
-
-  return records.filter(record => {
-    const extraValues = Object.values(record.extra_data || {}).join(" ");
-    const haystack = `${record.remnant_type} ${record.class_name} ${record.blueprint} ${record.technology} ${extraValues}`
-      .toLocaleLowerCase("es");
-
-    return (!term || haystack.includes(term))
-      && (!els.filterType.value || record.remnant_type === els.filterType.value)
-      && (!els.filterClass.value || record.class_name === els.filterClass.value)
-      && (!els.filterTechnology.value || record.technology === els.filterTechnology.value);
-  });
+async function refreshHistory() {
+  await loadHistoryPage();
+  renderHistory();
+  renderPagination();
 }
 
 function renderMetrics() {
-  const today = spainDateKey();
-  els.metricToday.textContent = records.filter(r => spainDateKey(r.created_at) === today).length;
-  els.metricXC.textContent = records.filter(r => r.remnant_type === "XC").length;
-  els.metricSC.textContent = records.filter(r => r.remnant_type === "SC").length;
-  els.metricTotal.textContent = records.length;
+  els.metricToday.textContent = metrics.today;
+  els.metricXC.textContent = metrics.xc;
+  els.metricSC.textContent = metrics.sc;
+  els.metricTotal.textContent = metrics.total;
 }
 
 function extraDataHtml(record) {
@@ -424,8 +571,9 @@ function extraDataHtml(record) {
 }
 
 function renderRecent() {
-  const latest = records.slice(0, 6);
-  els.recentCount.textContent = `${records.length} ${records.length === 1 ? "registro" : "registros"}`;
+  const latest = recentRecords;
+  const visible = latest.length;
+  els.recentCount.textContent = visible === 1 ? "1 reciente" : `${visible} recientes`;
 
   if (!latest.length) {
     els.recentList.innerHTML = '<div class="recent-empty">Aún no hay remanentes registrados.</div>';
@@ -446,7 +594,7 @@ function renderRecent() {
 }
 
 function renderHistory() {
-  const rows = filteredRecords();
+  const rows = records;
   els.historyBody.innerHTML = "";
   els.emptyHistory.classList.toggle("hidden", rows.length > 0);
 
@@ -487,10 +635,23 @@ function renderHistory() {
     .forEach(btn => btn.addEventListener("click", () => deleteRecord(btn.dataset.id)));
 }
 
+function renderPagination() {
+  const totalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
+  const first = historyTotal === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+  const last = historyTotal === 0 ? 0 : Math.min(currentPage * pageSize, historyTotal);
+
+  els.pageRange.textContent = `${first}–${last} de ${historyTotal}`;
+  els.pageIndicator.textContent = `Página ${currentPage} de ${totalPages}`;
+  els.prevPageBtn.disabled = currentPage <= 1;
+  els.nextPageBtn.disabled = currentPage >= totalPages;
+  els.pageSizeSelect.value = String(pageSize);
+}
+
 function renderAll() {
   renderMetrics();
   renderRecent();
   renderHistory();
+  renderPagination();
 }
 
 function applyAdminUi() {
@@ -573,10 +734,9 @@ async function saveCurrentRecord() {
         if (deleteEvidenceError) console.warn("Registro actualizado, pero no se pudo limpiar la evidencia anterior.", deleteEvidenceError);
       }
 
-      records = records.map(r => r.id === data.id ? data : r);
-      els.feedback.textContent = `✓ Registro actualizado: ${data.remnant_type} · ${data.blueprint} · ${data.technology}.`;
       cancelEditMode(false);
-      renderAll();
+      await refreshDashboardData();
+      els.feedback.textContent = `✓ Registro actualizado: ${data.remnant_type} · ${data.blueprint} · ${data.technology}.`;
     } else {
       const payload = {
         remnant_type: selectedType,
@@ -598,10 +758,10 @@ async function saveCurrentRecord() {
         throw error;
       }
 
-      records.unshift(data);
+      currentPage = 1;
       resetEntryForm();
+      await refreshDashboardData();
       els.feedback.textContent = `✓ ${data.remnant_type} · ${data.blueprint} · ${data.technology} registrado a las ${spainTime(data.created_at)} (hora España).`;
-      renderAll();
     }
   } catch (error) {
     els.feedback.textContent = `No se pudo guardar: ${error.message}`;
@@ -685,10 +845,9 @@ async function deleteRecord(id) {
 
     if (error) throw error;
 
-    records = records.filter(r => r.id !== record.id);
     if (editingRecordId === record.id) cancelEditMode(false);
+    await refreshDashboardData();
     els.feedback.textContent = "✓ Registro eliminado.";
-    renderAll();
   } catch (error) {
     els.feedback.textContent = `No se pudo eliminar: ${error.message}`;
   }
@@ -739,7 +898,7 @@ async function adminLogin(event) {
     els.adminDialog.close();
 
     await loadFormFields();
-    await loadRecords();
+    await refreshDashboardData();
     applyAdminUi();
     els.feedback.textContent = "✓ Modo superusuario activo.";
   } catch (error) {
@@ -753,7 +912,7 @@ async function adminLogout() {
   editingRecordId = null;
   await ensureSession();
   await loadFormFields();
-  await loadRecords();
+  await refreshDashboardData();
   applyAdminUi();
   els.feedback.textContent = "Sesión administrativa cerrada.";
 }
@@ -904,34 +1063,79 @@ async function deleteField(id) {
   resetFieldEditor();
 }
 
-function exportCsv() {
-  const rows = filteredRecords();
-  const dynamicKeys = [...new Set(rows.flatMap(r => Object.keys(r.extra_data || {})))];
-  const header = [
-    "fecha_hora_espana", "tipo_remanente", "clase", "plano", "tecnologia",
-    ...dynamicKeys, "tiene_evidencia"
-  ];
+async function fetchAllFilteredRecords() {
+  const allRows = [];
+  const batchSize = 1000;
+  let offset = 0;
 
-  const data = rows.map(record => [
-    spainDateTime(record.created_at),
-    record.remnant_type,
-    record.class_name,
-    record.blueprint,
-    record.technology,
-    ...dynamicKeys.map(key => record.extra_data?.[key] ?? ""),
-    record.evidence_path ? "Sí" : "No"
-  ]);
+  while (true) {
+    let query = sb
+      .from("remnant_records")
+      .select("*");
 
-  const csv = [header, ...data]
-    .map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(","))
-    .join("\n");
+    query = applyHistoryFilters(query)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + batchSize - 1);
 
-  const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `remnant-log-${spainDateKey()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const batch = data || [];
+    allRows.push(...batch);
+
+    if (batch.length < batchSize) break;
+    offset += batchSize;
+  }
+
+  return allRows;
+}
+
+async function exportCsv() {
+  const originalText = els.exportBtn.textContent;
+  els.exportBtn.disabled = true;
+  els.exportBtn.textContent = "Exportando…";
+
+  try {
+    const rows = await fetchAllFilteredRecords();
+    if (!rows.length) {
+      els.feedback.textContent = "No hay registros para exportar con los filtros actuales.";
+      return;
+    }
+
+    const dynamicKeys = [...new Set(rows.flatMap(r => Object.keys(r.extra_data || {})))];
+    const header = [
+      "fecha_hora_espana", "tipo_remanente", "clase", "plano", "tecnologia",
+      ...dynamicKeys, "tiene_evidencia"
+    ];
+
+    const data = rows.map(record => [
+      spainDateTime(record.created_at),
+      record.remnant_type,
+      record.class_name,
+      record.blueprint,
+      record.technology,
+      ...dynamicKeys.map(key => record.extra_data?.[key] ?? ""),
+      record.evidence_path ? "Sí" : "No"
+    ]);
+
+    const csv = [header, ...data]
+      .map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+
+    const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `remnant-log-${spainDateKey()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    els.feedback.textContent = `✓ CSV exportado con ${rows.length} registros filtrados.`;
+  } catch (error) {
+    els.feedback.textContent = `No se pudo exportar: ${error.message}`;
+  } finally {
+    els.exportBtn.disabled = false;
+    els.exportBtn.textContent = originalText;
+  }
 }
 
 els.remnantTypeGroup.querySelectorAll(".segment").forEach(btn => {
@@ -1011,8 +1215,62 @@ els.viewExistingEvidenceBtn.addEventListener("click", () => {
 els.saveBtn.addEventListener("click", saveCurrentRecord);
 els.cancelEditBtn.addEventListener("click", () => cancelEditMode());
 
-[els.searchInput, els.filterType, els.filterClass, els.filterTechnology].forEach(el => {
-  el.addEventListener(el.tagName === "INPUT" ? "input" : "change", renderHistory);
+els.searchInput.addEventListener("input", () => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(async () => {
+    currentPage = 1;
+    try {
+      await refreshHistory();
+    } catch (error) {
+      els.feedback.textContent = `No se pudo buscar: ${error.message}`;
+    }
+  }, 300);
+});
+
+[els.filterType, els.filterClass, els.filterTechnology].forEach(el => {
+  el.addEventListener("change", async () => {
+    currentPage = 1;
+    try {
+      await refreshHistory();
+    } catch (error) {
+      els.feedback.textContent = `No se pudo aplicar el filtro: ${error.message}`;
+    }
+  });
+});
+
+els.pageSizeSelect.addEventListener("change", async () => {
+  pageSize = Number(els.pageSizeSelect.value) || 20;
+  currentPage = 1;
+  try {
+    await refreshHistory();
+  } catch (error) {
+    els.feedback.textContent = `No se pudo cambiar el tamaño de página: ${error.message}`;
+  }
+});
+
+els.prevPageBtn.addEventListener("click", async () => {
+  if (currentPage <= 1) return;
+  currentPage -= 1;
+  try {
+    await refreshHistory();
+    document.querySelector(".history-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    currentPage += 1;
+    els.feedback.textContent = `No se pudo cargar la página anterior: ${error.message}`;
+  }
+});
+
+els.nextPageBtn.addEventListener("click", async () => {
+  const totalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
+  if (currentPage >= totalPages) return;
+  currentPage += 1;
+  try {
+    await refreshHistory();
+    document.querySelector(".history-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    currentPage -= 1;
+    els.feedback.textContent = `No se pudo cargar la página siguiente: ${error.message}`;
+  }
 });
 
 els.exportBtn.addEventListener("click", exportCsv);
@@ -1058,7 +1316,7 @@ els.fieldType.addEventListener("change", () => {
     await ensureSession();
     await refreshCurrentUser();
     await loadFormFields();
-    await loadRecords();
+    await refreshDashboardData();
     els.feedback.textContent = "✓ Conectado a Supabase. La hora la asigna PostgreSQL.";
   } catch (error) {
     els.feedback.textContent = `Error al conectar con Supabase: ${error.message}`;
