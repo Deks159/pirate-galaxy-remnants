@@ -1,38 +1,103 @@
 # Pirate Galaxy · Remnant Log
 
-## Estado actual
-
-- Supabase: `Deks159's Project`
-- Project ref: `rpeixlqgwkdsjmobppbt`
-- Región: `us-west-2`
-- Tabla: `public.remnant_records`
-- Bucket privado: `remnant-evidence`
-- RLS: habilitado
-- Security Advisors: sin hallazgos
-- `created_at`: generado por PostgreSQL mediante `now()`
-- Frontend: ya configurado con Project URL + publishable key
+Aplicación web para registrar Remanentes de Pirate Galaxy usando GitHub Pages + Supabase.
 
 ## Arquitectura
 
-- GitHub: repositorio del código.
-- GitHub Pages: hosting de la web.
-- Supabase PostgreSQL: historial central.
+- GitHub Pages: frontend.
+- Supabase Auth: sesión anónima para operadores y login Email/Password para superusuario.
+- Supabase PostgreSQL: historial.
 - Supabase Storage: evidencias.
-- Supabase Auth anónimo: sesión automática para aplicar RLS sin pedir login al jugador.
+- RLS: autorización de lectura/escritura.
 
-## Configuración
+## Funciones
 
-1. Crea un proyecto en Supabase.
-2. En Authentication habilita Anonymous Sign-Ins.
-3. Abre SQL Editor y ejecuta `supabase/schema.sql`.
-4. Copia Project URL y Publishable/Anon key en `config.js`.
-5. Sube el contenido a GitHub.
-6. Activa GitHub Pages desde `main` y `/(root)`.
+### Usuario normal
 
-## Hora del registro
+- Registrar XC / SC.
+- Elegir clase, plano y tecnología.
+- Todos los planos incluyen `Normal`.
+- Guardar campos dinámicos, actualmente `Nombre de piloto`.
+- Subir evidencia.
+- Consultar historial.
+- Exportar CSV.
 
-`created_at` se genera con `default now()` en PostgreSQL. El navegador no decide la fecha del registro. La interfaz transforma ese instante a `Europe/Madrid`, que gestiona automáticamente UTC+1/UTC+2 según horario de verano.
+### Superusuario
 
-## Seguridad
+El superusuario inicia sesión con correo/contraseña y debe tener:
 
-La web utiliza únicamente la Publishable/Anon key. Nunca coloques `service_role` o Secret keys en GitHub Pages. RLS está habilitado. El historial es compartido entre sesiones autenticadas y las evidencias están en un bucket privado.
+```json
+{
+  "role": "super_admin"
+}
+```
+
+dentro de `app_metadata`.
+
+Puede:
+
+- Agregar registros manualmente usando el mismo formulario.
+- Editar registros.
+- Eliminar registros.
+- Reemplazar o eliminar evidencia.
+- Crear campos nuevos del formulario.
+- Editar campos.
+- Activar/desactivar campos.
+- Eliminar definiciones de campos.
+
+Cuando se elimina una definición de campo, los valores ya guardados en `remnant_records.extra_data` permanecen en el historial.
+
+## Campo dinámico
+
+Los campos adicionales se definen en:
+
+```text
+public.form_fields
+```
+
+y sus valores se guardan en:
+
+```text
+public.remnant_records.extra_data
+```
+
+Ejemplo:
+
+```json
+{
+  "pilot_name": "Deks159",
+  "clan": "Ejemplo"
+}
+```
+
+Esto permite ampliar el formulario sin agregar una columna nueva por cada campo.
+
+## Crear el superusuario
+
+1. En Supabase Dashboard abre `Authentication > Users`.
+2. Crea el usuario con correo y contraseña.
+3. Después asigna en `raw_app_meta_data` / `app_metadata` el rol `super_admin`.
+4. Cierra cualquier sesión anterior del usuario y vuelve a iniciar sesión para obtener un JWT actualizado.
+
+No uses `user_metadata` para autorización.
+
+## Base de datos
+
+`supabase/schema.sql` contiene el estado reproducible del esquema.
+
+El backend remoto ya tiene aplicada la ampliación de:
+
+- `extra_data`
+- `updated_at`
+- `updated_by`
+- tabla `form_fields`
+- políticas de superusuario
+- índice de `created_by`
+
+## Publicación
+
+GitHub Pages puede continuar desplegando desde:
+
+```text
+main / (root)
+```

@@ -7,6 +7,7 @@
   <meta name="description" content="Registro de Remanentes de Pirate Galaxy">
   <title>Remnant Log · Pirate Galaxy</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="admin.css">
 </head>
 <body>
   <div class="bg-grid"></div>
@@ -19,16 +20,29 @@
         <h1>Remnant Log</h1>
       </div>
     </div>
-    <div class="server-clock">
-      <span class="status-dot"></span>
-      <div>
-        <small>Hora de España</small>
-        <strong id="spainClock">--:--:--</strong>
+
+    <div class="top-actions">
+      <button type="button" id="manageFieldsBtn" class="secondary-btn admin-only hidden">Campos</button>
+      <button type="button" id="adminLoginBtn" class="secondary-btn">Admin</button>
+      <div class="server-clock">
+        <span class="status-dot"></span>
+        <div>
+          <small>Hora de España</small>
+          <strong id="spainClock">--:--:--</strong>
+        </div>
       </div>
     </div>
   </header>
 
   <main class="shell">
+    <section id="adminBanner" class="admin-banner hidden">
+      <div>
+        <span class="eyebrow">SUPERUSUARIO</span>
+        <strong id="adminIdentity">Sesión administrativa activa</strong>
+      </div>
+      <span class="badge">Editar · Eliminar · Configurar</span>
+    </section>
+
     <section class="hero">
       <div>
         <span class="eyebrow">REGISTRO DE REMNANT CARRIERS</span>
@@ -60,7 +74,7 @@
       <article class="metric">
         <span>Total histórico</span>
         <strong id="metricTotal">0</strong>
-        <small>guardado en este navegador</small>
+        <small>base compartida</small>
       </article>
     </section>
 
@@ -68,10 +82,10 @@
       <article class="panel entry-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow">NUEVO REGISTRO</span>
-            <h3>Registrar remanente</h3>
+            <span id="entryEyebrow" class="eyebrow">NUEVO REGISTRO</span>
+            <h3 id="entryTitle">Registrar remanente</h3>
           </div>
-          <span class="badge">Data entry</span>
+          <span id="entryBadge" class="badge">Data entry</span>
         </div>
 
         <div class="field-group">
@@ -95,7 +109,10 @@
         <div class="field-group">
           <label>Tecnología</label>
           <div id="technologyGroup" class="tech-grid"></div>
+          <small class="helper-text">Todos los planos incluyen la variante Normal.</small>
         </div>
+
+        <div id="dynamicFields"></div>
 
         <div class="field-group">
           <label for="evidenceInput">Foto de evidencia <span class="optional">opcional</span></label>
@@ -111,12 +128,24 @@
               <button type="button" id="removeEvidenceBtn" class="remove-image">Quitar imagen</button>
             </div>
           </label>
+
+          <div id="existingEvidenceBox" class="existing-evidence hidden">
+            <span>Este registro ya tiene evidencia.</span>
+            <button type="button" id="viewExistingEvidenceBtn" class="secondary-btn">Ver actual</button>
+            <label class="remove-existing-label">
+              <input type="checkbox" id="removeExistingEvidence">
+              Eliminar evidencia actual
+            </label>
+          </div>
         </div>
 
-        <button type="button" id="saveBtn" class="primary-btn">
-          <span>Registrar remanente</span>
-          <span>→</span>
-        </button>
+        <div class="form-actions">
+          <button type="button" id="cancelEditBtn" class="secondary-btn hidden">Cancelar edición</button>
+          <button type="button" id="saveBtn" class="primary-btn">
+            <span>Registrar remanente</span>
+            <span>→</span>
+          </button>
+        </div>
         <p id="formFeedback" class="feedback" aria-live="polite"></p>
       </article>
 
@@ -144,7 +173,7 @@
       <div class="filters">
         <label>
           <span>Buscar</span>
-          <input id="searchInput" type="search" placeholder="Plano, clase, tecnología...">
+          <input id="searchInput" type="search" placeholder="Plano, clase, tecnología, piloto...">
         </label>
         <label>
           <span>Tipo</span>
@@ -181,7 +210,9 @@
               <th>Clase</th>
               <th>Plano</th>
               <th>Tecnología</th>
+              <th>Datos extra</th>
               <th>Evidencia</th>
+              <th class="admin-col hidden">Acciones</th>
             </tr>
           </thead>
           <tbody id="historyBody"></tbody>
@@ -200,6 +231,93 @@
       <button type="button" id="closeDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
     </div>
     <img id="dialogImage" alt="Evidencia del remanente">
+  </dialog>
+
+  <dialog id="adminDialog" class="admin-dialog">
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">SUPERUSUARIO</span>
+        <h3>Acceso administrativo</h3>
+      </div>
+      <button type="button" id="closeAdminDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+    <form id="adminLoginForm" class="admin-login-form">
+      <label>
+        <span>Correo</span>
+        <input id="adminEmail" type="email" autocomplete="username" required>
+      </label>
+      <label>
+        <span>Contraseña</span>
+        <input id="adminPassword" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary-btn" type="submit">
+        <span>Iniciar sesión</span><span>→</span>
+      </button>
+    </form>
+    <p id="adminLoginFeedback" class="feedback" aria-live="polite"></p>
+  </dialog>
+
+  <dialog id="fieldsDialog" class="fields-dialog">
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">FORMULARIO DINÁMICO</span>
+        <h3>Administrar campos</h3>
+      </div>
+      <button type="button" id="closeFieldsDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="field-manager-grid">
+      <section>
+        <h4>Campos configurados</h4>
+        <div id="fieldsList" class="fields-list"></div>
+      </section>
+
+      <section class="field-editor">
+        <h4 id="fieldEditorTitle">Agregar campo</h4>
+        <form id="fieldEditorForm">
+          <input id="fieldId" type="hidden">
+
+          <label>
+            <span>Nombre visible</span>
+            <input id="fieldLabel" type="text" placeholder="Ej. Nombre de piloto" required>
+          </label>
+
+          <label>
+            <span>Tipo</span>
+            <select id="fieldType">
+              <option value="text">Texto</option>
+              <option value="number">Número</option>
+              <option value="textarea">Texto largo</option>
+              <option value="select">Lista de opciones</option>
+              <option value="checkbox">Sí / No</option>
+            </select>
+          </label>
+
+          <label id="fieldOptionsWrap" class="hidden">
+            <span>Opciones, separadas por coma</span>
+            <input id="fieldOptions" type="text" placeholder="Opción A, Opción B">
+          </label>
+
+          <div class="field-checks">
+            <label><input id="fieldRequired" type="checkbox"> Obligatorio</label>
+            <label><input id="fieldActive" type="checkbox" checked> Activo</label>
+          </div>
+
+          <label>
+            <span>Orden</span>
+            <input id="fieldSortOrder" type="number" value="100">
+          </label>
+
+          <div class="form-actions">
+            <button id="cancelFieldEditBtn" type="button" class="secondary-btn hidden">Cancelar</button>
+            <button type="submit" class="primary-btn">
+              <span>Guardar campo</span><span>→</span>
+            </button>
+          </div>
+        </form>
+        <p id="fieldFeedback" class="feedback" aria-live="polite"></p>
+      </section>
+    </div>
   </dialog>
 
   <footer>
