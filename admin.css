@@ -230,3 +230,19 @@ body.is-admin #entryBadge {
     flex-direction: column;
   }
 }
+
+
+.upload-box.paste-ready {
+  border-color: rgba(94, 240, 178, .45);
+  box-shadow: 0 0 0 3px rgba(94, 240, 178, .06);
+}
+
+.upload-box.paste-flash {
+  animation: pasteFlash .45s ease;
+}
+
+@keyframes pasteFlash {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.008); }
+  100% { transform: scale(1); }
+}

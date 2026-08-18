@@ -69,6 +69,7 @@ const els = {
   technologyGroup: $("#technologyGroup"),
   dynamicFields: $("#dynamicFields"),
   evidenceInput: $("#evidenceInput"),
+  uploadBox: document.querySelector(".upload-box"),
   uploadPlaceholder: $("#uploadPlaceholder"),
   imagePreviewWrap: $("#imagePreviewWrap"),
   imagePreview: $("#imagePreview"),
@@ -940,19 +941,59 @@ els.remnantTypeGroup.querySelectorAll(".segment").forEach(btn => {
 els.classSelect.addEventListener("change", populateBlueprints);
 els.blueprintSelect.addEventListener("change", () => populateTechnologies());
 
+
+async function processEvidenceBlob(blob, sourceLabel = "captura") {
+  try {
+    if (!blob || !blob.type?.startsWith("image/")) {
+      throw new Error("El contenido pegado no es una imagen.");
+    }
+
+    els.feedback.textContent = `Procesando ${sourceLabel}…`;
+    const compressed = await compressImage(blob);
+    setEvidencePreview(compressed);
+    els.feedback.textContent = `✓ Evidencia pegada y lista (${Math.round(compressed.size / 1024)} KB).`;
+
+    if (els.uploadBox) {
+      els.uploadBox.classList.add("paste-flash");
+      setTimeout(() => els.uploadBox.classList.remove("paste-flash"), 500);
+    }
+  } catch (error) {
+    els.feedback.textContent = `No se pudo procesar la evidencia: ${error.message}`;
+  }
+}
+
+document.addEventListener("paste", async event => {
+  const items = Array.from(event.clipboardData?.items || []);
+  const imageItem = items.find(item => item.type?.startsWith("image/"));
+
+  // Si no hay imagen, dejamos que Ctrl+V funcione normalmente para texto.
+  if (!imageItem) return;
+
+  const imageFile = imageItem.getAsFile();
+  if (!imageFile) return;
+
+  event.preventDefault();
+  await processEvidenceBlob(imageFile, "imagen del portapapeles");
+});
+
+document.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+    els.uploadBox?.classList.add("paste-ready");
+  }
+});
+
+document.addEventListener("keyup", event => {
+  if (event.key.toLowerCase() === "v" || (!event.ctrlKey && !event.metaKey)) {
+    els.uploadBox?.classList.remove("paste-ready");
+  }
+});
+
+window.addEventListener("blur", () => els.uploadBox?.classList.remove("paste-ready"));
+
 els.evidenceInput.addEventListener("change", async event => {
   const file = event.target.files[0];
   if (!file) return;
-
-  try {
-    els.feedback.textContent = "Procesando evidencia…";
-    const blob = await compressImage(file);
-    setEvidencePreview(blob);
-    els.feedback.textContent = `Evidencia lista (${Math.round(blob.size / 1024)} KB).`;
-  } catch (error) {
-    els.feedback.textContent = error.message;
-    event.target.value = "";
-  }
+  await processEvidenceBlob(file, "evidencia seleccionada");
 });
 
 els.removeEvidenceBtn.addEventListener("click", event => {
