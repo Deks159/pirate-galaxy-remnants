@@ -153,3 +153,22 @@ Los registros anteriores al primer reinicio permanecen como `Sin ciclo`; no se r
 La migración V3.4 ya fue aplicada al proyecto Supabase conectado. Al actualizar GitHub Pages
 no es necesario volver a ejecutar `supabase/schema.sql`; ese archivo se conserva como referencia
 reproducible del esquema.
+
+
+## Catálogo corregido (V3.5)
+
+Se actualizó el catálogo de planos y tecnologías exactamente a la tabla validada para el juego.
+
+La aplicación ahora distingue las etiquetas tal como corresponden a cada plano:
+- `Rápido` y `Rápida`
+- `Duradero` y `Duradera`
+- `Potente`
+- `Normal`
+
+`Normal` continúa agregándose automáticamente a todos los planos. `Recolector` conserva únicamente `Normal`.
+
+La restricción `remnant_records_technology_check` de Supabase fue ampliada para aceptar las seis
+etiquetas anteriores. La migración ya fue aplicada al proyecto conectado.
+
+La V3.5 no reescribe automáticamente registros históricos: un registro previo conserva exactamente
+la tecnología con la que fue guardado para no alterar evidencia histórica sin revisión.

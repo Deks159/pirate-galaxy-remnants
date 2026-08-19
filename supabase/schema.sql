@@ -9,7 +9,7 @@ create table if not exists public.remnant_records (
   remnant_type text not null check (remnant_type in ('XC','SC')),
   class_name text not null,
   blueprint text not null,
-  technology text not null check (technology in ('Normal','Rápida','Duradera','Potente')),
+  technology text not null check (technology in ('Normal','Potente','Rápido','Rápida','Duradero','Duradera')),
   evidence_path text,
   created_by uuid not null default auth.uid() references auth.users(id) on delete restrict,
   created_at timestamptz not null default now(),
@@ -396,3 +396,19 @@ using (
   and coalesce((((select auth.jwt()) -> 'app_metadata' ->> 'role') = 'super_admin'), false)
   and coalesce((((select auth.jwt()) ->> 'is_anonymous')::boolean), false) = false
 );
+
+
+-- V3.5 · variantes de tecnología exactas según el catálogo corregido
+alter table public.remnant_records
+  drop constraint if exists remnant_records_technology_check;
+
+alter table public.remnant_records
+  add constraint remnant_records_technology_check
+  check (technology in (
+    'Normal',
+    'Potente',
+    'Rápido',
+    'Rápida',
+    'Duradero',
+    'Duradera'
+  ));
