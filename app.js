@@ -1,57 +1,57 @@
 const catalog = {
   "Tormenta": {
-    "Misiles": ["Potente", "Rápida"],
+    "Misiles": ["Potente", "Rápido"],
     "Mira Computarizada": ["Potente", "Duradera"],
     "Perforador": ["Duradera"],
-    "Rayo Térmico": ["Potente", "Duradera"]
+    "Rayo Térmico": ["Potente", "Duradero"]
   },
   "Tanque": {
-    "Escudo": ["Duradera", "Rápida"],
-    "Picador": ["Potente", "Duradera"],
+    "Escudo": ["Duradero", "Rápido"],
+    "Picador": ["Potente", "Duradero"],
     "Señal de interferencia": ["Duradera", "Potente"],
     "Bomba de agresión": ["Potente", "Rápida"]
   },
   "Ingeniero": {
-    "Protector": ["Duradera", "Potente"],
-    "Telereparador": ["Duradera", "Potente"],
-    "Campo de reparación": ["Duradera", "Potente"],
-    "Resurrector": ["Duradera", "Potente"]
+    "Protector": ["Duradero", "Rápido"],
+    "Telereparador": ["Duradero", "Potente"],
+    "Campo de reparación": ["Duradero", "Potente"],
+    "Resurrector": ["Duradero", "Potente"]
   },
   "Shock": {
-    "Acelerador": ["Duradera", "Potente"],
-    "Desacelerador": ["Duradera", "Potente"],
-    "Señuelo": ["Duradera", "Potente"],
-    "Paralizador": ["Duradera", "Potente"]
+    "Acelerador": ["Duradero", "Potente"],
+    "Desacelerador": ["Duradero", "Potente"],
+    "Señuelo": ["Duradero", "Potente"],
+    "Paralizador": ["Duradero", "Potente"]
   },
   "Sniper": {
-    "Largo Alcance": ["Potente", "Rápida"],
-    "Droide de ataque": ["Potente", "Duradera"],
-    "Ataque Orbital": ["Potente", "Rápida"],
-    "Carga de Ataque": ["Potente", "Duradera"]
+    "Largo Alcance": ["Potente", "Rápido"],
+    "Droide de ataque": ["Potente", "Duradero"],
+    "Ataque Orbital": ["Potente", "Rápido"],
+    "Carga de Ataque": ["Potente", "Duradero"]
   },
   "Defensor": {
-    "Torre de ataque": ["Duradera", "Potente"],
-    "Torre de Reparación": ["Duradera", "Potente"],
-    "Mina": ["Duradera", "Potente"],
+    "Torre de ataque": ["Duradero", "Potente"],
+    "Torre de Reparación": ["Duradero", "Potente"],
+    "Mina": ["Duradera", "Rápida"],
     "Bomba Lapa": ["Rápida", "Potente"]
   },
   "Luchador": {
-    "Inversor de Daño": ["Duradera", "Potente"],
-    "Droide Deflector": ["Duradera", "Potente"],
-    "Salto Cuántico": ["Rápida", "Potente"],
-    "Haz Eléctrico": ["Rápida", "Potente"]
+    "Inversor de Daño": ["Duradero", "Potente"],
+    "Droide Deflector": ["Duradero", "Potente"],
+    "Salto Cuántico": ["Rápido", "Potente"],
+    "Haz Eléctrico": ["Rápido", "Potente"]
   },
   "Soporte": {
-    "Aura Protectora": ["Potente", "Duradera"],
-    "Absorbedor de Alcance": ["Potente", "Duradera"],
+    "Aura Protectora": ["Potente", "Duradero"],
+    "Absorbedor de Alcance": ["Potente", "Duradero"],
     "Trampa Magnética": ["Potente", "Duradera"],
     "Nube Corrosiva": ["Potente", "Duradera"]
   },
   "Comunes": {
-    "Cañón": ["Potente", "Rápida"],
+    "Cañón": ["Potente", "Rápido"],
     "Recolector": [],
-    "Reparador": ["Potente", "Duradera"],
-    "Impulsor": ["Potente", "Duradera"]
+    "Reparador": ["Potente", "Duradero"],
+    "Impulsor": ["Potente", "Duradero"]
   }
 };
 
