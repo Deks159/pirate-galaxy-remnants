@@ -659,6 +659,7 @@ function applyAdminUi() {
   document.body.classList.toggle("is-admin", admin);
   els.adminBanner.classList.toggle("hidden", !admin);
   els.manageFieldsBtn.classList.toggle("hidden", !admin);
+  els.exportBtn.classList.toggle("hidden", !admin);
 
   if (admin) {
     els.adminIdentity.textContent = currentUser.email || "Superusuario";
@@ -1091,6 +1092,11 @@ async function fetchAllFilteredRecords() {
 }
 
 async function exportCsv() {
+  if (!isSuperAdmin()) {
+    els.feedback.textContent = "La exportación CSV está disponible únicamente para el superusuario.";
+    return;
+  }
+
   const originalText = els.exportBtn.textContent;
   els.exportBtn.disabled = true;
   els.exportBtn.textContent = "Exportando…";
