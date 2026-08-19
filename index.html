@@ -22,6 +22,7 @@
     </div>
 
     <div class="top-actions">
+      <button type="button" id="registerRestartBtn" class="secondary-btn admin-only hidden">Reinicio</button>
       <button type="button" id="manageFieldsBtn" class="secondary-btn admin-only hidden">Campos</button>
       <button type="button" id="adminLoginBtn" class="secondary-btn">Admin</button>
       <div class="server-clock">
@@ -52,6 +53,18 @@
       <div class="hero-chip">
         <span>Timezone</span>
         <strong>Europe/Madrid</strong>
+      </div>
+    </section>
+
+    <section id="cyclePanel" class="cycle-panel">
+      <div class="cycle-copy">
+        <span class="eyebrow">ROTACIÓN DEL SERVIDOR</span>
+        <h3 id="currentCycleTitle">Sin ciclo registrado</h3>
+        <p id="currentCycleMeta">Los remanentes se asociarán a un ciclo cuando el administrador registre el primer reinicio del servidor.</p>
+      </div>
+      <div class="cycle-actions">
+        <span id="currentCycleCount" class="badge">0 remanentes</span>
+        <button type="button" id="viewCycleEvidenceBtn" class="secondary-btn hidden">Ver evidencia del reinicio</button>
       </div>
     </section>
 
@@ -206,6 +219,7 @@
           <thead>
             <tr>
               <th>Fecha / hora España</th>
+              <th>Ciclo / posición</th>
               <th>Tipo</th>
               <th>Clase</th>
               <th>Plano</th>
@@ -274,6 +288,69 @@
       </button>
     </form>
     <p id="adminLoginFeedback" class="feedback" aria-live="polite"></p>
+  </dialog>
+
+  <dialog id="restartDialog" class="restart-dialog">
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">NUEVO CICLO</span>
+        <h3>Registrar reinicio del servidor</h3>
+      </div>
+      <button type="button" id="closeRestartDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+
+    <p class="restart-intro">
+      Al guardar este evento se inicia un nuevo ciclo. Todos los remanentes registrados después
+      se asociarán automáticamente a este reinicio y recibirán una posición consecutiva.
+    </p>
+
+    <form id="restartForm" class="restart-form">
+      <div class="restart-grid">
+        <label>
+          <span>Servidor</span>
+          <input id="restartServerName" type="text" value="Aurora" required>
+        </label>
+
+        <label>
+          <span>Uptime mostrado</span>
+          <input id="restartUptime" type="text" inputmode="numeric" placeholder="00:28:29"
+                 pattern="[0-9]{1,4}:[0-5][0-9]:[0-5][0-9]" required>
+          <small>Formato HH:MM:SS. Ejemplo: 00:28:29.</small>
+        </label>
+
+        <label>
+          <span>Server time mostrado</span>
+          <input id="restartServerTime" type="datetime-local" step="1">
+          <small>La hora que aparece dentro de Game Info.</small>
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label for="restartEvidenceInput">Evidencia del reinicio</label>
+        <label id="restartUploadBox" class="restart-upload-box" for="restartEvidenceInput">
+          <input id="restartEvidenceInput" type="file" accept="image/*">
+          <div id="restartUploadPlaceholder" class="restart-upload-placeholder">
+            <span class="upload-icon">＋</span>
+            <strong>Seleccionar o pegar captura con Ctrl + V</strong>
+            <small>Usa la captura de Game Info donde se vea Server, Servertime y uptime.</small>
+          </div>
+          <div id="restartImagePreviewWrap" class="image-preview-wrap hidden">
+            <img id="restartImagePreview" alt="Vista previa de la evidencia del reinicio">
+            <button type="button" id="removeRestartEvidenceBtn" class="remove-image">Quitar imagen</button>
+          </div>
+        </label>
+      </div>
+
+      <label class="restart-notes-label">
+        <span>Notas <small>opcional</small></span>
+        <textarea id="restartNotes" rows="3" placeholder="Ej. Reinicio rutinario del servidor"></textarea>
+      </label>
+
+      <button type="submit" id="saveRestartBtn" class="primary-btn">
+        <span>Registrar reinicio e iniciar ciclo</span><span>→</span>
+      </button>
+    </form>
+    <p id="restartFeedback" class="feedback" aria-live="polite"></p>
   </dialog>
 
   <dialog id="fieldsDialog" class="fields-dialog">

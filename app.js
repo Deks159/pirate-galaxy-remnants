@@ -111,6 +111,26 @@ const els = {
   closeAdminDialogBtn: $("#closeAdminDialogBtn"),
   adminBanner: $("#adminBanner"),
   adminIdentity: $("#adminIdentity"),
+  registerRestartBtn: $("#registerRestartBtn"),
+  currentCycleTitle: $("#currentCycleTitle"),
+  currentCycleMeta: $("#currentCycleMeta"),
+  currentCycleCount: $("#currentCycleCount"),
+  viewCycleEvidenceBtn: $("#viewCycleEvidenceBtn"),
+  restartDialog: $("#restartDialog"),
+  closeRestartDialogBtn: $("#closeRestartDialogBtn"),
+  restartForm: $("#restartForm"),
+  restartServerName: $("#restartServerName"),
+  restartUptime: $("#restartUptime"),
+  restartServerTime: $("#restartServerTime"),
+  restartEvidenceInput: $("#restartEvidenceInput"),
+  restartUploadBox: $("#restartUploadBox"),
+  restartUploadPlaceholder: $("#restartUploadPlaceholder"),
+  restartImagePreviewWrap: $("#restartImagePreviewWrap"),
+  restartImagePreview: $("#restartImagePreview"),
+  removeRestartEvidenceBtn: $("#removeRestartEvidenceBtn"),
+  restartNotes: $("#restartNotes"),
+  saveRestartBtn: $("#saveRestartBtn"),
+  restartFeedback: $("#restartFeedback"),
   manageFieldsBtn: $("#manageFieldsBtn"),
   fieldsDialog: $("#fieldsDialog"),
   closeFieldsDialogBtn: $("#closeFieldsDialogBtn"),
@@ -146,6 +166,10 @@ let currentPage = 1;
 let pageSize = 20;
 let historyTotal = 0;
 let metrics = { today: 0, xc: 0, sc: 0, total: 0 };
+let currentCycle = null;
+let currentCycleRecordCount = 0;
+let restartEvidenceBlob = null;
+let restartEvidencePreviewUrl = null;
 let searchDebounceTimer = null;
 
 function isSuperAdmin(user = currentUser) {
@@ -245,6 +269,76 @@ function spainTodayUtcRange() {
 function updateClock() {
   const p = spainParts();
   els.spainClock.textContent = `${p.hour}:${p.minute}:${p.second}`;
+}
+
+function parseUptimeToSeconds(value) {
+  const match = String(value || "").trim().match(/^(\d{1,4}):([0-5]\d):([0-5]\d)$/);
+  if (!match) throw new Error("El uptime debe usar formato HH:MM:SS, por ejemplo 00:28:29.");
+  return (Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3]);
+}
+
+function formatUptime(seconds) {
+  const total = Math.max(0, Number(seconds || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function parseServerTimestampParts(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6] || 0)
+  };
+}
+
+function formatServerTimestamp(value, includeSeconds = false) {
+  const p = parseServerTimestampParts(value);
+  if (!p) return "No indicado";
+  const time = includeSeconds
+    ? `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}:${String(p.second).padStart(2, "0")}`
+    : `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+  return `${String(p.day).padStart(2, "0")}/${String(p.month).padStart(2, "0")}/${p.year} ${time}`;
+}
+
+function estimatedServerRestartText(cycle) {
+  const p = parseServerTimestampParts(cycle?.server_time_shown);
+  if (!p || cycle?.uptime_seconds == null) return null;
+
+  const serverClockMs = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const estimate = new Date(serverClockMs - (Number(cycle.uptime_seconds) * 1000));
+
+  return `${String(estimate.getUTCDate()).padStart(2, "0")}/${String(estimate.getUTCMonth() + 1).padStart(2, "0")}/${estimate.getUTCFullYear()} ` +
+    `${String(estimate.getUTCHours()).padStart(2, "0")}:${String(estimate.getUTCMinutes()).padStart(2, "0")}:${String(estimate.getUTCSeconds()).padStart(2, "0")}`;
+}
+
+function setRestartEvidencePreview(blob) {
+  if (restartEvidencePreviewUrl) URL.revokeObjectURL(restartEvidencePreviewUrl);
+  restartEvidencePreviewUrl = blob ? URL.createObjectURL(blob) : null;
+  restartEvidenceBlob = blob;
+
+  els.restartImagePreviewWrap.classList.toggle("hidden", !blob);
+  els.restartUploadPlaceholder.classList.toggle("hidden", !!blob);
+
+  if (blob) els.restartImagePreview.src = restartEvidencePreviewUrl;
+  else els.restartImagePreview.removeAttribute("src");
+}
+
+function resetRestartForm() {
+  setRestartEvidencePreview(null);
+  els.restartEvidenceInput.value = "";
+  els.restartServerName.value = currentCycle?.server_name || "Aurora";
+  els.restartUptime.value = "";
+  els.restartServerTime.value = "";
+  els.restartNotes.value = "";
+  els.restartFeedback.textContent = "";
 }
 
 function esc(value) {
@@ -481,7 +575,7 @@ async function loadHistoryPage() {
 
   let query = sb
     .from("remnant_records")
-    .select("*", { count: "exact" });
+    .select("*, server_restarts(cycle_number, server_name)", { count: "exact" });
 
   query = applyHistoryFilters(query)
     .order("created_at", { ascending: false })
@@ -504,7 +598,7 @@ async function loadHistoryPage() {
 async function loadRecentRecords() {
   const { data, error } = await sb
     .from("remnant_records")
-    .select("*")
+    .select("*, server_restarts(cycle_number, server_name)")
     .order("created_at", { ascending: false })
     .limit(6);
 
@@ -521,6 +615,30 @@ async function countRecords(configureQuery = query => query) {
   const { count, error } = await query;
   if (error) throw error;
   return count ?? 0;
+}
+
+async function loadCurrentCycle() {
+  const { data, error } = await sb
+    .from("server_restarts")
+    .select("*")
+    .order("cycle_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  currentCycle = data || null;
+  currentCycleRecordCount = 0;
+
+  if (currentCycle) {
+    const { count, error: countError } = await sb
+      .from("remnant_records")
+      .select("id", { count: "exact", head: true })
+      .eq("server_restart_id", currentCycle.id);
+
+    if (countError) throw countError;
+    currentCycleRecordCount = count ?? 0;
+  }
 }
 
 async function loadMetrics() {
@@ -540,7 +658,8 @@ async function refreshDashboardData() {
   await Promise.all([
     loadHistoryPage(),
     loadRecentRecords(),
-    loadMetrics()
+    loadMetrics(),
+    loadCurrentCycle()
   ]);
   renderAll();
 }
@@ -556,6 +675,32 @@ function renderMetrics() {
   els.metricXC.textContent = metrics.xc;
   els.metricSC.textContent = metrics.sc;
   els.metricTotal.textContent = metrics.total;
+}
+
+function renderCurrentCycle() {
+  if (!currentCycle) {
+    els.currentCycleTitle.textContent = "Sin ciclo registrado";
+    els.currentCycleMeta.textContent = "Los remanentes se asociarán a un ciclo cuando el administrador registre el primer reinicio del servidor.";
+    els.currentCycleCount.textContent = "0 remanentes";
+    els.viewCycleEvidenceBtn.classList.add("hidden");
+    return;
+  }
+
+  els.currentCycleTitle.textContent = `Ciclo #${currentCycle.cycle_number} · ${currentCycle.server_name}`;
+  const estimate = estimatedServerRestartText(currentCycle);
+  const meta = [
+    `Reinicio registrado ${spainDateTime(currentCycle.detected_at)}`,
+    `Game Info: ${formatServerTimestamp(currentCycle.server_time_shown)}`,
+    `uptime ${formatUptime(currentCycle.uptime_seconds)}`
+  ];
+
+  if (estimate) meta.push(`inicio estimado ${estimate} (hora mostrada por el servidor)`);
+
+  els.currentCycleMeta.textContent = meta.join(" · ");
+  els.currentCycleCount.textContent = currentCycleRecordCount === 1
+    ? "1 remanente"
+    : `${currentCycleRecordCount} remanentes`;
+  els.viewCycleEvidenceBtn.classList.toggle("hidden", !currentCycle.evidence_path);
 }
 
 function extraDataHtml(record) {
@@ -586,7 +731,7 @@ function renderRecent() {
       <div class="type-pill">${record.remnant_type}</div>
       <div class="recent-copy">
         <strong>${esc(record.blueprint)} · ${esc(record.technology)}</strong>
-        <small>${esc(record.class_name)}${pilot}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
+        <small>${esc(record.class_name)}${pilot}${record.server_restarts ? ` · Ciclo #${record.server_restarts.cycle_number} · pos. #${record.cycle_position}` : " · Sin ciclo"}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
       </div>
       <div class="recent-time">${spainTime(record.created_at)}</div>
     </div>`;
@@ -611,6 +756,9 @@ function renderHistory() {
 
     tr.innerHTML = `
       <td>${spainDateTime(record.created_at)}</td>
+      <td>${record.server_restarts
+        ? `<span class="cycle-cell"><strong>#${record.server_restarts.cycle_number}</strong><small>posición ${record.cycle_position ?? "—"}</small></span>`
+        : '<span class="no-evidence">Sin ciclo</span>'}</td>
       <td><strong>${record.remnant_type}</strong></td>
       <td>${esc(record.class_name)}</td>
       <td>${esc(record.blueprint)}</td>
@@ -649,6 +797,7 @@ function renderPagination() {
 
 function renderAll() {
   renderMetrics();
+  renderCurrentCycle();
   renderRecent();
   renderHistory();
   renderPagination();
@@ -658,6 +807,7 @@ function applyAdminUi() {
   const admin = isSuperAdmin();
   document.body.classList.toggle("is-admin", admin);
   els.adminBanner.classList.toggle("hidden", !admin);
+  els.registerRestartBtn.classList.toggle("hidden", !admin);
   els.manageFieldsBtn.classList.toggle("hidden", !admin);
   els.exportBtn.classList.toggle("hidden", !admin);
 
@@ -875,6 +1025,114 @@ async function openEvidence(idOrRecord) {
   els.evidenceDialog.showModal();
 }
 
+async function processRestartEvidenceBlob(blob, sourceLabel = "captura") {
+  try {
+    if (!blob || !blob.type?.startsWith("image/")) {
+      throw new Error("El contenido pegado no es una imagen.");
+    }
+
+    els.restartFeedback.textContent = `Procesando ${sourceLabel}…`;
+    const compressed = await compressImage(blob);
+    setRestartEvidencePreview(compressed);
+    els.restartFeedback.textContent = `✓ Evidencia lista (${Math.round(compressed.size / 1024)} KB).`;
+
+    els.restartUploadBox.classList.add("paste-flash");
+    setTimeout(() => els.restartUploadBox.classList.remove("paste-flash"), 500);
+  } catch (error) {
+    els.restartFeedback.textContent = `No se pudo procesar la evidencia: ${error.message}`;
+  }
+}
+
+async function saveServerRestart(event) {
+  event.preventDefault();
+
+  if (!isSuperAdmin()) {
+    els.restartFeedback.textContent = "Solo el superusuario puede registrar reinicios.";
+    return;
+  }
+
+  let uploadedPath = null;
+  let restartInserted = false;
+  els.saveRestartBtn.disabled = true;
+  els.restartFeedback.textContent = "Registrando reinicio…";
+
+  try {
+    const serverName = els.restartServerName.value.trim();
+    const uptimeSeconds = parseUptimeToSeconds(els.restartUptime.value);
+
+    if (!serverName) throw new Error("Indica el nombre del servidor.");
+    if (!restartEvidenceBlob) throw new Error("Agrega una captura de evidencia del reinicio.");
+
+    uploadedPath = `${currentUser.id}/server-restarts/${crypto.randomUUID()}.webp`;
+
+    const { error: uploadError } = await sb.storage
+      .from("remnant-evidence")
+      .upload(uploadedPath, restartEvidenceBlob, {
+        contentType: "image/webp",
+        upsert: false
+      });
+
+    if (uploadError) throw uploadError;
+
+    const payload = {
+      server_name: serverName,
+      server_time_shown: els.restartServerTime.value || null,
+      uptime_seconds: uptimeSeconds,
+      evidence_path: uploadedPath,
+      notes: els.restartNotes.value.trim() || null
+    };
+
+    const { data, error } = await sb
+      .from("server_restarts")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      await sb.storage.from("remnant-evidence").remove([uploadedPath]);
+      throw error;
+    }
+
+    restartInserted = true;
+    els.restartDialog.close();
+    resetRestartForm();
+    currentPage = 1;
+    await refreshDashboardData();
+
+    els.feedback.textContent =
+      `✓ Reinicio registrado. Comienza el ciclo #${data.cycle_number}; el próximo remanente será la posición #1.`;
+  } catch (error) {
+    if (uploadedPath && !restartInserted) {
+      await sb.storage.from("remnant-evidence").remove([uploadedPath]);
+    }
+
+    if (restartInserted) {
+      els.feedback.textContent = `El reinicio quedó registrado, pero no se pudo refrescar la pantalla: ${error.message}`;
+    } else {
+      els.restartFeedback.textContent = `No se pudo registrar: ${error.message}`;
+    }
+  } finally {
+    els.saveRestartBtn.disabled = false;
+  }
+}
+
+async function openCurrentCycleEvidence() {
+  if (!currentCycle?.evidence_path) return;
+
+  const { data, error } = await sb.storage
+    .from("remnant-evidence")
+    .createSignedUrl(currentCycle.evidence_path, 60);
+
+  if (error) {
+    els.feedback.textContent = `No se pudo abrir evidencia del reinicio: ${error.message}`;
+    return;
+  }
+
+  els.dialogTitle.textContent = `Reinicio · Ciclo #${currentCycle.cycle_number} · ${currentCycle.server_name}`;
+  els.dialogImage.src = data.signedUrl;
+  els.evidenceDialog.showModal();
+}
+
 async function adminLogin(event) {
   event.preventDefault();
   els.adminLoginFeedback.textContent = "Verificando…";
@@ -908,6 +1166,7 @@ async function adminLogin(event) {
 }
 
 async function adminLogout() {
+  if (els.restartDialog.open) els.restartDialog.close();
   await sb.auth.signOut();
   currentUser = null;
   editingRecordId = null;
@@ -1072,7 +1331,7 @@ async function fetchAllFilteredRecords() {
   while (true) {
     let query = sb
       .from("remnant_records")
-      .select("*");
+      .select("*, server_restarts(cycle_number, server_name)");
 
     query = applyHistoryFilters(query)
       .order("created_at", { ascending: false })
@@ -1110,12 +1369,16 @@ async function exportCsv() {
 
     const dynamicKeys = [...new Set(rows.flatMap(r => Object.keys(r.extra_data || {})))];
     const header = [
-      "fecha_hora_espana", "tipo_remanente", "clase", "plano", "tecnologia",
+      "fecha_hora_espana", "ciclo", "posicion_ciclo", "servidor",
+      "tipo_remanente", "clase", "plano", "tecnologia",
       ...dynamicKeys, "tiene_evidencia"
     ];
 
     const data = rows.map(record => [
       spainDateTime(record.created_at),
+      record.server_restarts?.cycle_number ?? "",
+      record.cycle_position ?? "",
+      record.server_restarts?.server_name ?? "",
       record.remnant_type,
       record.class_name,
       record.blueprint,
@@ -1182,23 +1445,50 @@ document.addEventListener("paste", async event => {
   const imageFile = imageItem.getAsFile();
   if (!imageFile) return;
 
+  if (els.restartDialog.open && isSuperAdmin()) {
+    event.preventDefault();
+    await processRestartEvidenceBlob(imageFile, "imagen del portapapeles");
+    return;
+  }
+
+  // No pegamos una imagen en el formulario principal si hay otro diálogo abierto.
+  if (document.querySelector("dialog[open]")) return;
+
   event.preventDefault();
   await processEvidenceBlob(imageFile, "imagen del portapapeles");
 });
 
 document.addEventListener("keydown", event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
-    els.uploadBox?.classList.add("paste-ready");
+    const target = els.restartDialog.open ? els.restartUploadBox : els.uploadBox;
+    target?.classList.add("paste-ready");
   }
 });
 
 document.addEventListener("keyup", event => {
   if (event.key.toLowerCase() === "v" || (!event.ctrlKey && !event.metaKey)) {
     els.uploadBox?.classList.remove("paste-ready");
+    els.restartUploadBox?.classList.remove("paste-ready");
   }
 });
 
-window.addEventListener("blur", () => els.uploadBox?.classList.remove("paste-ready"));
+window.addEventListener("blur", () => {
+  els.uploadBox?.classList.remove("paste-ready");
+  els.restartUploadBox?.classList.remove("paste-ready");
+});
+
+els.restartEvidenceInput.addEventListener("change", async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  await processRestartEvidenceBlob(file, "evidencia seleccionada");
+});
+
+els.removeRestartEvidenceBtn.addEventListener("click", event => {
+  event.preventDefault();
+  event.stopPropagation();
+  setRestartEvidencePreview(null);
+  els.restartEvidenceInput.value = "";
+});
 
 els.evidenceInput.addEventListener("change", async event => {
   const file = event.target.files[0];
@@ -1293,6 +1583,20 @@ els.adminLoginBtn.addEventListener("click", async () => {
 
 els.closeAdminDialogBtn.addEventListener("click", () => els.adminDialog.close());
 els.adminLoginForm.addEventListener("submit", adminLogin);
+
+els.registerRestartBtn.addEventListener("click", () => {
+  if (!isSuperAdmin()) return;
+  resetRestartForm();
+  els.restartDialog.showModal();
+});
+
+els.closeRestartDialogBtn.addEventListener("click", () => {
+  els.restartDialog.close();
+  resetRestartForm();
+});
+
+els.restartForm.addEventListener("submit", saveServerRestart);
+els.viewCycleEvidenceBtn.addEventListener("click", openCurrentCycleEvidence);
 
 els.manageFieldsBtn.addEventListener("click", () => {
   if (!isSuperAdmin()) return;

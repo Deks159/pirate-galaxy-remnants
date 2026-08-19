@@ -112,3 +112,44 @@ main / (root)
 - Las métricas se calculan con consultas de conteo y no dependen de la página visible.
 - La exportación CSV obtiene todos los registros que coinciden con los filtros, no solo la página actual.
 - `@supabase/supabase-js` está fijado en `2.111.0` en el CDN.
+
+
+## Exportación CSV restringida en interfaz (V3.3)
+
+- El botón `Exportar CSV` inicia oculto.
+- Solo se muestra cuando la sesión actual tiene `app_metadata.role = super_admin`.
+- Al cerrar la sesión administrativa, el botón vuelve a ocultarse.
+- `exportCsv()` también verifica `isSuperAdmin()` antes de generar el archivo.
+- Esta segunda validación evita que un usuario normal exporte simplemente mostrando el botón con DevTools.
+- La restricción sigue siendo del lado del cliente; los usuarios normales conservan acceso de lectura al historial porque la aplicación necesita mostrarlo.
+
+
+## Ciclos de servidor (V3.4)
+
+La aplicación ahora puede separar la rotación de remanentes por reinicios del servidor.
+
+### Flujo
+1. El superusuario entra en modo Admin.
+2. Pulsa `Reinicio`.
+3. Registra servidor, uptime, hora mostrada por Game Info y una captura de evidencia.
+4. Supabase crea un nuevo `cycle_number`.
+5. Cada nuevo remanente se asocia automáticamente al ciclo vigente.
+6. La base asigna también `cycle_position` de forma consecutiva: 1, 2, 3, etc.
+
+Los registros anteriores al primer reinicio permanecen como `Sin ciclo`; no se retroasignan porque no existe evidencia suficiente para saber a qué lista pertenecían.
+
+### Base de datos
+- Nueva tabla: `public.server_restarts`.
+- Nuevas columnas en `public.remnant_records`:
+  - `server_restart_id`
+  - `cycle_position`
+- Un trigger de PostgreSQL asigna ciclo y posición al insertar cada remanente.
+- El registro de reinicios requiere `super_admin`.
+- Todos los usuarios autenticados, incluidos los anónimos de la app, pueden leer el ciclo actual y su evidencia.
+
+
+### Estado del proyecto conectado
+
+La migración V3.4 ya fue aplicada al proyecto Supabase conectado. Al actualizar GitHub Pages
+no es necesario volver a ejecutar `supabase/schema.sql`; ese archivo se conserva como referencia
+reproducible del esquema.
