@@ -172,6 +172,8 @@ let restartEvidenceBlob = null;
 let restartEvidencePreviewUrl = null;
 let searchDebounceTimer = null;
 
+const DUPLICATE_WINDOW_MINUTES = 60;
+
 function isSuperAdmin(user = currentUser) {
   return user?.app_metadata?.role === "super_admin";
 }
@@ -823,6 +825,51 @@ function applyAdminUi() {
   renderHistory();
 }
 
+async function findRecentDuplicate() {
+  const cutoff = new Date(Date.now() - (DUPLICATE_WINDOW_MINUTES * 60 * 1000)).toISOString();
+
+  let query = sb
+    .from("remnant_records")
+    .select("id, created_at, cycle_position, server_restart_id")
+    .eq("remnant_type", selectedType)
+    .eq("class_name", els.classSelect.value)
+    .eq("blueprint", els.blueprintSelect.value)
+    .eq("technology", selectedTechnology)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  query = currentCycle?.id
+    ? query.eq("server_restart_id", currentCycle.id)
+    : query.is("server_restart_id", null);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+function duplicateRemnantMessage(record = null) {
+  let timing = "";
+  if (record?.created_at) {
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - new Date(record.created_at).getTime()) / 1000));
+    if (elapsedSeconds < 60) {
+      timing = " hace menos de un minuto";
+    } else {
+      timing = ` hace ${Math.max(1, Math.round(elapsedSeconds / 60))} min`;
+    }
+  }
+
+  const position = record?.cycle_position
+    ? ` (posición #${record.cycle_position} del ciclo actual)`
+    : "";
+
+  return `⚠️ Este remanente ya fue registrado${timing}${position}. No se creó un duplicado. Los usuarios normales deben esperar 1 hora para repetir la misma combinación; si realmente volvió a salir antes, un administrador puede registrarlo.`;
+}
+
+function isDatabaseDuplicateError(error) {
+  return error?.code === "23P01";
+}
+
 async function saveCurrentRecord() {
   if (!configured) {
     els.feedback.textContent = "Configura Supabase en config.js antes de registrar.";
@@ -836,6 +883,14 @@ async function saveCurrentRecord() {
 
   try {
     const extraData = collectExtraData();
+
+    if (!editingRecordId && !isSuperAdmin()) {
+      const duplicate = await findRecentDuplicate();
+      if (duplicate) {
+        els.feedback.textContent = duplicateRemnantMessage(duplicate);
+        return;
+      }
+    }
 
     if (evidenceBlob) {
       newEvidencePath = `${currentUser.id}/${crypto.randomUUID()}.webp`;
@@ -906,6 +961,12 @@ async function saveCurrentRecord() {
 
       if (error) {
         if (newEvidencePath) await sb.storage.from("remnant-evidence").remove([newEvidencePath]);
+
+        if (isDatabaseDuplicateError(error)) {
+          els.feedback.textContent = duplicateRemnantMessage();
+          return;
+        }
+
         throw error;
       }
 

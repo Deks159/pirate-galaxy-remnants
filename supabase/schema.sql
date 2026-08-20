@@ -412,3 +412,103 @@ alter table public.remnant_records
     'Duradero',
     'Duradera'
   ));
+
+
+-- V3.6 · prevención de remanentes duplicados
+--
+-- Regla:
+-- dentro del mismo ciclo del servidor, no se permiten dos registros con la misma
+-- combinación (tipo + clase + plano + tecnología) si sus ventanas de 5 minutos
+-- se superponen. Antes del primer ciclo se aplica la misma regla a server_restart_id NULL.
+--
+-- La exclusión GiST es concurrente/atómica: protege también cuando dos usuarios
+-- intentan guardar el mismo remanente prácticamente al mismo tiempo.
+create extension if not exists btree_gist with schema extensions;
+
+alter table public.remnant_records
+  drop constraint if exists remnant_records_no_recent_duplicates;
+
+alter table public.remnant_records
+  add constraint remnant_records_no_recent_duplicates
+  exclude using gist (
+    (coalesce(server_restart_id, '00000000-0000-0000-0000-000000000000'::uuid)) with =,
+    remnant_type with =,
+    class_name with =,
+    blueprint with =,
+    technology with =,
+    tsrange(
+      created_at at time zone 'UTC',
+      (created_at at time zone 'UTC') + interval '5 minutes',
+      '[)'
+    ) with &&
+  );
+
+
+-- V3.7 · duplicados durante 1 hora con excepción para super_admin
+--
+-- Sustituye la restricción GiST global de V3.6 por un trigger que:
+-- - bloquea a usuarios normales si existe la misma combinación en la última hora,
+-- - mantiene la validación dentro del mismo ciclo del servidor,
+-- - permite al super_admin registrar una repetición legítima antes de una hora,
+-- - devuelve SQLSTATE 23P01 para que el frontend muestre un mensaje amigable.
+alter table public.remnant_records
+  drop constraint if exists remnant_records_no_recent_duplicates;
+
+create or replace function public.prevent_recent_duplicate_remnant()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  is_super_admin boolean;
+begin
+  -- La hora del remanente se mantiene confiable desde PostgreSQL.
+  new.created_at := now();
+
+  is_super_admin :=
+    coalesce((((select auth.jwt()) -> 'app_metadata' ->> 'role') = 'super_admin'), false)
+    and coalesce((((select auth.jwt()) ->> 'is_anonymous')::boolean), false) = false;
+
+  if is_super_admin then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from public.remnant_records rr
+    where rr.server_restart_id is not distinct from new.server_restart_id
+      and rr.remnant_type = new.remnant_type
+      and rr.class_name = new.class_name
+      and rr.blueprint = new.blueprint
+      and rr.technology = new.technology
+      and rr.created_at >= (now() - interval '1 hour')
+  ) then
+    raise exception using
+      errcode = '23P01',
+      message = 'duplicate remnant within 1 hour',
+      detail = 'A remnant with the same type, class, blueprint and technology already exists in the current server cycle within the last hour.',
+      constraint = 'remnant_records_no_recent_duplicates';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_recent_duplicate_remnant() from public, anon, authenticated;
+
+drop trigger if exists prevent_recent_duplicate_remnant_before_insert on public.remnant_records;
+create trigger prevent_recent_duplicate_remnant_before_insert
+before insert on public.remnant_records
+for each row
+execute function public.prevent_recent_duplicate_remnant();
+
+create index if not exists remnant_records_duplicate_guard_idx
+on public.remnant_records (
+  server_restart_id,
+  remnant_type,
+  class_name,
+  blueprint,
+  technology,
+  created_at desc
+);

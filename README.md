@@ -172,3 +172,40 @@ etiquetas anteriores. La migración ya fue aplicada al proyecto conectado.
 
 La V3.5 no reescribe automáticamente registros históricos: un registro previo conserva exactamente
 la tecnología con la que fue guardado para no alterar evidencia histórica sin revisión.
+
+
+## Protección contra registros duplicados (V3.7)
+
+Para evitar que varias personas anoten el mismo remanente, se valida la combinación de:
+
+- Tipo de remanente (`XC` / `SC`)
+- Clase
+- Plano
+- Tecnología
+
+### Usuarios normales
+
+La misma combinación queda bloqueada durante **1 hora dentro del mismo ciclo del servidor**.
+Si el servidor se reinicia y comienza un ciclo nuevo, la combinación puede registrarse nuevamente
+sin esperar la hora.
+
+La protección funciona en dos niveles:
+
+1. **Frontend:** antes de subir la evidencia, la página consulta si el remanente ya fue registrado
+   durante la última hora.
+2. **PostgreSQL:** un trigger vuelve a validar el INSERT y rechaza el duplicado con SQLSTATE `23P01`.
+   El trigger se ejecuta después de la asignación automática del ciclo, por lo que también cubre
+   intentos casi simultáneos de diferentes usuarios.
+
+### Superusuario
+
+El usuario con `app_metadata.role = super_admin` puede registrar la misma combinación antes de
+cumplirse la hora cuando confirma que realmente volvió a salir. La excepción se valida también en
+PostgreSQL; no depende únicamente de ocultar o mostrar controles del frontend.
+
+La V3.7 también mantiene `created_at` asignado desde PostgreSQL y agrega un índice compuesto para
+acelerar la búsqueda de duplicados por ciclo + tipo + clase + plano + tecnología + fecha.
+
+La migración V3.7 ya fue aplicada al proyecto Supabase conectado. Al publicar esta versión en
+GitHub Pages **no ejecutes `supabase/schema.sql` manualmente**; se conserva como referencia del
+esquema reproducible.
