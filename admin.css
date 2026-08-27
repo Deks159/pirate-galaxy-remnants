@@ -1050,3 +1050,44 @@ body.is-admin #entryBadge {
     align-items: flex-start;
   }
 }
+
+
+/* V3.9.2 · acceso simplificado */
+.admin-dialog {
+  width: min(420px, calc(100% - 28px));
+}
+
+.admin-dialog .dialog-head {
+  margin-bottom: 18px;
+}
+
+.admin-dialog .dialog-head > div {
+  flex: 1;
+  text-align: center;
+  padding-left: 38px;
+}
+
+.admin-dialog .dialog-head h3 {
+  margin: 0;
+}
+
+.admin-login-form {
+  width: min(330px, 100%);
+  margin: 0 auto;
+  gap: 16px;
+}
+
+.admin-login-form .primary-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.admin-login-form input {
+  text-align: left;
+}
+
+@media (max-width: 520px) {
+  .admin-dialog .dialog-head > div {
+    padding-left: 30px;
+  }
+}

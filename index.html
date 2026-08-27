@@ -281,26 +281,21 @@
   <dialog id="adminDialog" class="admin-dialog">
     <div class="dialog-head">
       <div>
-        <span class="eyebrow">ACCESO PRIVADO</span>
-        <h3>Superadministrador o analista</h3>
+        <h3>Ingresar las claves</h3>
       </div>
       <button type="button" id="closeAdminDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
     </div>
-    <div class="access-privacy-notice">
-      <strong>Registro de seguridad</strong>
-      <p>Los accesos privados registran la IP pública, un identificador aleatorio del navegador, el navegador/dispositivo y una ubicación aproximada obtenida de la IP (ciudad, región y país). No se solicita GPS ni ubicación precisa.</p>
-    </div>
     <form id="adminLoginForm" class="admin-login-form">
       <label>
-        <span>Correo</span>
-        <input id="adminEmail" type="email" autocomplete="username" required>
+        <span>Usuario</span>
+        <input id="adminEmail" type="email" autocomplete="username" placeholder="tu-correo@ejemplo.com" required>
       </label>
       <label>
         <span>Contraseña</span>
         <input id="adminPassword" type="password" autocomplete="current-password" required>
       </label>
       <button class="primary-btn" type="submit">
-        <span>Iniciar sesión</span><span>→</span>
+        <span>Ingresar</span><span>→</span>
       </button>
     </form>
     <p id="adminLoginFeedback" class="feedback" aria-live="polite"></p>
