@@ -512,3 +512,66 @@ on public.remnant_records (
   technology,
   created_at desc
 );
+
+
+-- V3.9 · cuentas privadas para consultar el análisis y auditoría de acceso
+create table if not exists public.analysis_members (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  display_name text,
+  status text not null default 'active' check (status in ('active','banned')),
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists analysis_members_email_lower_uidx
+  on public.analysis_members (lower(email));
+create index if not exists analysis_members_status_idx
+  on public.analysis_members (status);
+create index if not exists analysis_members_created_by_idx
+  on public.analysis_members (created_by);
+
+create table if not exists public.analysis_access_logs (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users(id) on delete set null,
+  email_snapshot text,
+  role_snapshot text,
+  event_type text not null check (
+    event_type in ('login','access_check','analysis_open','analysis_refresh','access_denied')
+  ),
+  ip_address text,
+  country_code text,
+  country_name text,
+  region_name text,
+  city text,
+  ip_timezone text,
+  user_agent text,
+  device_id text,
+  browser_timezone text,
+  browser_language text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists analysis_access_logs_user_created_idx
+  on public.analysis_access_logs (user_id, created_at desc);
+create index if not exists analysis_access_logs_ip_created_idx
+  on public.analysis_access_logs (ip_address, created_at desc);
+create index if not exists analysis_access_logs_device_created_idx
+  on public.analysis_access_logs (device_id, created_at desc);
+create index if not exists analysis_access_logs_created_at_idx
+  on public.analysis_access_logs (created_at desc);
+
+alter table public.analysis_members enable row level security;
+alter table public.analysis_access_logs enable row level security;
+
+revoke all on table public.analysis_members from anon, authenticated;
+revoke all on table public.analysis_access_logs from anon, authenticated;
+
+grant select, insert, update, delete on table public.analysis_members to service_role;
+grant select, insert, update, delete on table public.analysis_access_logs to service_role;
+grant usage, select on sequence public.analysis_access_logs_id_seq to service_role;
+
+-- No se crean políticas de navegador para estas tablas.
+-- La gestión y lectura de la auditoría se hace únicamente a través de la Edge Function
+-- `analysis-access`, que valida el rol `super_admin` en app_metadata.

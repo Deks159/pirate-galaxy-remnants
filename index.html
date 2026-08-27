@@ -23,9 +23,10 @@
 
     <div class="top-actions">
       <button type="button" id="analysisBtn" class="secondary-btn admin-only hidden">Análisis</button>
+      <button type="button" id="analysisUsersBtn" class="secondary-btn admin-only hidden">Usuarios</button>
       <button type="button" id="registerRestartBtn" class="secondary-btn admin-only hidden">Reinicio</button>
       <button type="button" id="manageFieldsBtn" class="secondary-btn admin-only hidden">Campos</button>
-      <button type="button" id="adminLoginBtn" class="secondary-btn">Admin</button>
+      <button type="button" id="adminLoginBtn" class="secondary-btn">Acceso</button>
       <div class="server-clock">
         <span class="status-dot"></span>
         <div>
@@ -43,6 +44,14 @@
         <strong id="adminIdentity">Sesión administrativa activa</strong>
       </div>
       <span class="badge">Editar · Eliminar · Configurar</span>
+    </section>
+
+    <section id="analysisViewerBanner" class="analysis-viewer-banner hidden">
+      <div>
+        <span class="eyebrow">ANALISTA AUTORIZADO</span>
+        <strong id="analysisViewerIdentity">Acceso privado al análisis</strong>
+      </div>
+      <span class="badge">Análisis · Sin administración</span>
     </section>
 
     <section class="hero">
@@ -272,10 +281,14 @@
   <dialog id="adminDialog" class="admin-dialog">
     <div class="dialog-head">
       <div>
-        <span class="eyebrow">SUPERUSUARIO</span>
-        <h3>Acceso administrativo</h3>
+        <span class="eyebrow">ACCESO PRIVADO</span>
+        <h3>Superadministrador o analista</h3>
       </div>
       <button type="button" id="closeAdminDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+    <div class="access-privacy-notice">
+      <strong>Registro de seguridad</strong>
+      <p>Los accesos privados registran la IP pública, un identificador aleatorio del navegador, el navegador/dispositivo y una ubicación aproximada obtenida de la IP (ciudad, región y país). No se solicita GPS ni ubicación precisa.</p>
     </div>
     <form id="adminLoginForm" class="admin-login-form">
       <label>
@@ -291,6 +304,114 @@
       </button>
     </form>
     <p id="adminLoginFeedback" class="feedback" aria-live="polite"></p>
+  </dialog>
+
+  <dialog id="analysisUsersDialog" class="analysis-users-dialog">
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">SUPERADMINISTRADOR</span>
+        <h3>Accesos al análisis</h3>
+        <p class="analysis-updated">Crea cuentas de analista y revisa sus accesos privados.</p>
+      </div>
+      <button type="button" id="closeAnalysisUsersDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="access-admin-grid">
+      <section class="access-create-card">
+        <div class="analysis-section-head">
+          <div>
+            <span class="eyebrow">NUEVA CUENTA</span>
+            <h4>Crear analista</h4>
+          </div>
+        </div>
+        <form id="analysisMemberForm" class="access-member-form">
+          <label>
+            <span>Nombre <small>opcional</small></span>
+            <input id="analysisMemberName" type="text" maxlength="120" placeholder="Ej. DarkStar">
+          </label>
+          <label>
+            <span>Correo</span>
+            <input id="analysisMemberEmail" type="email" autocomplete="off" required placeholder="persona@correo.com">
+          </label>
+          <button type="submit" id="createAnalysisMemberBtn" class="primary-btn">
+            <span>Crear acceso</span><span>→</span>
+          </button>
+        </form>
+        <p id="analysisMemberFeedback" class="feedback" aria-live="polite"></p>
+
+        <div id="analysisCredentialsBox" class="access-credentials hidden">
+          <span class="eyebrow">CREDENCIALES TEMPORALES</span>
+          <p>La contraseña se muestra una sola vez. Compártela por un canal seguro.</p>
+          <div class="credential-line"><span>Correo</span><code id="analysisCredentialEmail">—</code></div>
+          <div class="credential-line"><span>Contraseña</span><code id="analysisCredentialPassword">—</code></div>
+          <button type="button" id="copyAnalysisCredentialsBtn" class="secondary-btn">Copiar credenciales</button>
+        </div>
+      </section>
+
+      <section class="access-guidance-card">
+        <span class="eyebrow">SEÑALES DE USO COMPARTIDO</span>
+        <h4>Cómo interpretar los accesos</h4>
+        <p>Los cambios de IP por sí solos no demuestran que una cuenta fue compartida. Redes móviles, VPN, CGNAT y viajes pueden cambiar la IP.</p>
+        <ul>
+          <li><strong>Bajo:</strong> patrón estable.</li>
+          <li><strong>Medio:</strong> varios dispositivos o varias IP en poco tiempo.</li>
+          <li><strong>Alto:</strong> países distintos en 24 h o una cantidad inusual de dispositivos/IP.</li>
+        </ul>
+        <p>La ubicación es aproximada por IP y puede ser incorrecta.</p>
+      </section>
+    </div>
+
+    <section class="analysis-section access-members-section">
+      <div class="analysis-section-head">
+        <div>
+          <span class="eyebrow">CUENTAS AUTORIZADAS</span>
+          <h4>Analistas</h4>
+        </div>
+        <button type="button" id="refreshAnalysisUsersBtn" class="secondary-btn">Actualizar</button>
+      </div>
+      <div class="analysis-table-wrap">
+        <table class="analysis-table access-users-table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Estado</th>
+              <th>Último acceso</th>
+              <th>IP / ubicación</th>
+              <th>Dispositivos</th>
+              <th>Señal</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="analysisUsersBody"></tbody>
+        </table>
+      </div>
+      <div id="analysisUsersEmpty" class="analysis-empty hidden">Aún no hay analistas creados.</div>
+    </section>
+
+    <section id="analysisUserLogsPanel" class="analysis-section hidden">
+      <div class="analysis-section-head">
+        <div>
+          <span class="eyebrow">HISTORIAL DE ACCESO</span>
+          <h4 id="analysisUserLogsTitle">Usuario</h4>
+        </div>
+        <button type="button" id="closeAnalysisUserLogsBtn" class="secondary-btn">Cerrar detalle</button>
+      </div>
+      <div class="analysis-table-wrap">
+        <table class="analysis-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Evento</th>
+              <th>IP</th>
+              <th>Ubicación aproximada</th>
+              <th>Dispositivo</th>
+              <th>Navegador</th>
+            </tr>
+          </thead>
+          <tbody id="analysisUserLogsBody"></tbody>
+        </table>
+      </div>
+    </section>
   </dialog>
 
   <dialog id="analysisDialog" class="analysis-dialog">

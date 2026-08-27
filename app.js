@@ -111,7 +111,28 @@ const els = {
   closeAdminDialogBtn: $("#closeAdminDialogBtn"),
   adminBanner: $("#adminBanner"),
   adminIdentity: $("#adminIdentity"),
+  analysisViewerBanner: $("#analysisViewerBanner"),
+  analysisViewerIdentity: $("#analysisViewerIdentity"),
   analysisBtn: $("#analysisBtn"),
+  analysisUsersBtn: $("#analysisUsersBtn"),
+  analysisUsersDialog: $("#analysisUsersDialog"),
+  closeAnalysisUsersDialogBtn: $("#closeAnalysisUsersDialogBtn"),
+  refreshAnalysisUsersBtn: $("#refreshAnalysisUsersBtn"),
+  analysisMemberForm: $("#analysisMemberForm"),
+  analysisMemberName: $("#analysisMemberName"),
+  analysisMemberEmail: $("#analysisMemberEmail"),
+  createAnalysisMemberBtn: $("#createAnalysisMemberBtn"),
+  analysisMemberFeedback: $("#analysisMemberFeedback"),
+  analysisCredentialsBox: $("#analysisCredentialsBox"),
+  analysisCredentialEmail: $("#analysisCredentialEmail"),
+  analysisCredentialPassword: $("#analysisCredentialPassword"),
+  copyAnalysisCredentialsBtn: $("#copyAnalysisCredentialsBtn"),
+  analysisUsersBody: $("#analysisUsersBody"),
+  analysisUsersEmpty: $("#analysisUsersEmpty"),
+  analysisUserLogsPanel: $("#analysisUserLogsPanel"),
+  analysisUserLogsTitle: $("#analysisUserLogsTitle"),
+  analysisUserLogsBody: $("#analysisUserLogsBody"),
+  closeAnalysisUserLogsBtn: $("#closeAnalysisUserLogsBtn"),
   analysisDialog: $("#analysisDialog"),
   closeAnalysisDialogBtn: $("#closeAnalysisDialogBtn"),
   refreshAnalysisBtn: $("#refreshAnalysisBtn"),
@@ -202,11 +223,134 @@ let searchDebounceTimer = null;
 let analyticsRecords = [];
 let analyticsLoadedAt = null;
 let activeAnalysisTab = "summary";
+let analysisAccessGranted = false;
+let analysisViewerProfile = null;
+let analysisHeartbeatTimer = null;
+let analysisMembers = [];
 
 const DUPLICATE_WINDOW_MINUTES = 60;
+const ANALYSIS_DEVICE_KEY = "pg_analysis_device_id_v1";
+const ANALYSIS_HEARTBEAT_MS = 5 * 60 * 1000;
 
 function isSuperAdmin(user = currentUser) {
   return user?.app_metadata?.role === "super_admin";
+}
+
+function isAnalysisViewer(user = currentUser) {
+  return user?.app_metadata?.role === "analysis_viewer";
+}
+
+function isPrivateUser(user = currentUser) {
+  return isSuperAdmin(user) || isAnalysisViewer(user);
+}
+
+function canViewAnalysis() {
+  return isSuperAdmin() || (isAnalysisViewer() && analysisAccessGranted);
+}
+
+function analysisDeviceId() {
+  let id = localStorage.getItem(ANALYSIS_DEVICE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(ANALYSIS_DEVICE_KEY, id);
+  }
+  return id;
+}
+
+function analysisClientContext() {
+  let browserTimezone = "";
+  try {
+    browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch (_) {}
+
+  return {
+    device_id: analysisDeviceId(),
+    browser_timezone: browserTimezone,
+    browser_language: navigator.language || ""
+  };
+}
+
+async function edgeFunctionErrorMessage(error) {
+  try {
+    if (error?.context?.clone) {
+      const body = await error.context.clone().json();
+      if (body?.error) return body.detail ? `${body.error} ${body.detail}` : body.error;
+    }
+  } catch (_) {}
+  return error?.message || "No se pudo completar la operación.";
+}
+
+async function invokeAnalysisAccess(action, payload = {}) {
+  const { data, error } = await sb.functions.invoke("analysis-access", {
+    body: { action, ...payload }
+  });
+
+  if (error) {
+    throw new Error(await edgeFunctionErrorMessage(error));
+  }
+
+  if (data?.error) {
+    throw new Error(data.detail ? `${data.error} ${data.detail}` : data.error);
+  }
+
+  return data || {};
+}
+
+async function verifyAnalysisAccess(eventType = "access_check") {
+  if (isSuperAdmin()) {
+    analysisAccessGranted = true;
+    return true;
+  }
+
+  if (!isAnalysisViewer()) {
+    analysisAccessGranted = false;
+    analysisViewerProfile = null;
+    return false;
+  }
+
+  try {
+    const result = await invokeAnalysisAccess("check_access", {
+      event_type: eventType,
+      ...analysisClientContext()
+    });
+
+    analysisAccessGranted = result.allowed === true;
+    analysisViewerProfile = analysisAccessGranted ? result : null;
+    applyAdminUi();
+    return analysisAccessGranted;
+  } catch (error) {
+    console.warn("Acceso de analista rechazado", error);
+    analysisAccessGranted = false;
+    analysisViewerProfile = null;
+    applyAdminUi();
+    return false;
+  }
+}
+
+function stopAnalysisHeartbeat() {
+  if (analysisHeartbeatTimer) {
+    clearInterval(analysisHeartbeatTimer);
+    analysisHeartbeatTimer = null;
+  }
+}
+
+function startAnalysisHeartbeat() {
+  stopAnalysisHeartbeat();
+  if (!isAnalysisViewer()) return;
+
+  analysisHeartbeatTimer = setInterval(async () => {
+    if (!els.analysisDialog.open || !isAnalysisViewer()) {
+      stopAnalysisHeartbeat();
+      return;
+    }
+
+    const allowed = await verifyAnalysisAccess("access_check");
+    if (!allowed) {
+      els.analysisDialog.close();
+      stopAnalysisHeartbeat();
+      await privateLogout("Tu acceso al análisis fue revocado o la cuenta está bloqueada.");
+    }
+  }, ANALYSIS_HEARTBEAT_MS);
 }
 
 function spainParts(date = new Date()) {
@@ -877,7 +1021,7 @@ function renderTransitionColumn(title, items, samples) {
 }
 
 async function loadAnalyticsRecords() {
-  if (!isSuperAdmin()) throw new Error("Solo el superusuario puede abrir el análisis.");
+  if (!canViewAnalysis()) throw new Error("Esta cuenta no tiene acceso al análisis.");
 
   const all = [];
   const batchSize = 1000;
@@ -1257,6 +1401,17 @@ function renderActiveAnalysisTab() {
 }
 
 async function refreshAnalysis() {
+  if (isAnalysisViewer()) {
+    const allowed = await verifyAnalysisAccess("analysis_refresh");
+    if (!allowed) {
+      if (els.analysisDialog.open) els.analysisDialog.close();
+      await privateLogout("Tu acceso al análisis fue revocado o la cuenta está bloqueada.");
+      return;
+    }
+  }
+
+  if (!canViewAnalysis()) return;
+
   els.analysisLoading.classList.remove("hidden");
   els.analysisFeedback.textContent = "";
   els.refreshAnalysisBtn.disabled = true;
@@ -1275,9 +1430,18 @@ async function refreshAnalysis() {
 }
 
 async function openAnalysis() {
-  if (!isSuperAdmin()) return;
+  if (isAnalysisViewer()) {
+    const allowed = await verifyAnalysisAccess("analysis_open");
+    if (!allowed) {
+      await privateLogout("Tu cuenta no tiene acceso activo al análisis.");
+      return;
+    }
+  }
+
+  if (!canViewAnalysis()) return;
 
   els.analysisDialog.showModal();
+  startAnalysisHeartbeat();
 
   if (!analyticsRecords.length) {
     await refreshAnalysis();
@@ -1474,9 +1638,16 @@ function renderAll() {
 
 function applyAdminUi() {
   const admin = isSuperAdmin();
+  const viewer = isAnalysisViewer();
+  const analysisAllowed = canViewAnalysis();
+
   document.body.classList.toggle("is-admin", admin);
+  document.body.classList.toggle("is-analysis-viewer", viewer && analysisAccessGranted);
+
   els.adminBanner.classList.toggle("hidden", !admin);
-  els.analysisBtn.classList.toggle("hidden", !admin);
+  els.analysisViewerBanner.classList.toggle("hidden", !(viewer && analysisAccessGranted));
+  els.analysisBtn.classList.toggle("hidden", !analysisAllowed);
+  els.analysisUsersBtn.classList.toggle("hidden", !admin);
   els.registerRestartBtn.classList.toggle("hidden", !admin);
   els.manageFieldsBtn.classList.toggle("hidden", !admin);
   els.exportBtn.classList.toggle("hidden", !admin);
@@ -1485,8 +1656,16 @@ function applyAdminUi() {
     els.adminIdentity.textContent = currentUser.email || "Superusuario";
     els.adminLoginBtn.textContent = "Salir admin";
     els.entryBadge.textContent = editingRecordId ? "Edición admin" : "Alta manual admin";
+  } else if (viewer && analysisAccessGranted) {
+    els.analysisViewerIdentity.textContent =
+      analysisViewerProfile?.display_name ||
+      analysisViewerProfile?.email ||
+      currentUser?.email ||
+      "Analista";
+    els.adminLoginBtn.textContent = "Salir analista";
+    els.entryBadge.textContent = "Data entry";
   } else {
-    els.adminLoginBtn.textContent = "Admin";
+    els.adminLoginBtn.textContent = "Acceso";
     els.entryBadge.textContent = "Data entry";
   }
 
@@ -1862,6 +2041,203 @@ async function openCurrentCycleEvidence() {
   els.evidenceDialog.showModal();
 }
 
+
+function accessRiskLabel(risk) {
+  if (risk === "high") return { text: "Alto", cls: "risk-high" };
+  if (risk === "medium") return { text: "Medio", cls: "risk-medium" };
+  return { text: "Bajo", cls: "risk-low" };
+}
+
+function approximateLocationText(location) {
+  if (!location) return "Sin ubicación";
+  return [location.city, location.region, location.country].filter(Boolean).join(", ") || "Sin ubicación";
+}
+
+function accessEventLabel(eventType) {
+  return ({
+    login: "Inicio de sesión",
+    access_check: "Verificación",
+    analysis_open: "Abrió análisis",
+    analysis_refresh: "Actualizó análisis",
+    access_denied: "Acceso rechazado"
+  })[eventType] || eventType || "—";
+}
+
+async function loadAnalysisMembers() {
+  if (!isSuperAdmin()) return;
+  els.analysisMemberFeedback.textContent = "Cargando accesos…";
+
+  try {
+    const result = await invokeAnalysisAccess("list_members");
+    analysisMembers = result.members || [];
+    renderAnalysisMembers();
+    els.analysisMemberFeedback.textContent = "";
+  } catch (error) {
+    els.analysisMemberFeedback.textContent = `No se pudieron cargar los usuarios: ${error.message}`;
+  }
+}
+
+function renderAnalysisMembers() {
+  els.analysisUsersEmpty.classList.toggle("hidden", analysisMembers.length > 0);
+
+  els.analysisUsersBody.innerHTML = analysisMembers.map(member => {
+    const risk = accessRiskLabel(member.sharing_risk);
+    const location = approximateLocationText(member.last_location);
+    const status = member.status === "active"
+      ? '<span class="access-status active">Activo</span>'
+      : '<span class="access-status banned">Baneado</span>';
+
+    const actions = member.status === "active"
+      ? `<button type="button" class="mini-btn danger" data-access-action="ban" data-user-id="${esc(member.user_id)}">Banear</button>`
+      : `<button type="button" class="mini-btn" data-access-action="unban" data-user-id="${esc(member.user_id)}">Reactivar</button>`;
+
+    return `<tr>
+      <td>
+        <strong>${esc(member.display_name || member.email)}</strong>
+        <small>${esc(member.email)}</small>
+      </td>
+      <td>${status}</td>
+      <td>${member.last_access_at ? spainDateTime(member.last_access_at) : "Nunca"}</td>
+      <td>
+        <strong>${esc(member.last_ip || "—")}</strong>
+        <small>${esc(location)}</small>
+      </td>
+      <td>
+        <strong>${member.devices_7d ?? 0} disp.</strong>
+        <small>${member.ips_24h ?? 0} IP · ${member.countries_24h ?? 0} país(es)</small>
+      </td>
+      <td><span class="access-risk ${risk.cls}">${risk.text}</span></td>
+      <td>
+        <div class="access-row-actions">
+          <button type="button" class="mini-btn" data-access-action="logs" data-user-id="${esc(member.user_id)}">Accesos</button>
+          ${actions}
+          <button type="button" class="mini-btn danger ghost" data-access-action="delete" data-user-id="${esc(member.user_id)}">Eliminar</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function openAnalysisUsers() {
+  if (!isSuperAdmin()) return;
+  els.analysisCredentialsBox.classList.add("hidden");
+  els.analysisUserLogsPanel.classList.add("hidden");
+  els.analysisUsersDialog.showModal();
+  await loadAnalysisMembers();
+}
+
+async function createAnalysisMember(event) {
+  event.preventDefault();
+  if (!isSuperAdmin()) return;
+
+  const email = els.analysisMemberEmail.value.trim();
+  const displayName = els.analysisMemberName.value.trim();
+
+  els.createAnalysisMemberBtn.disabled = true;
+  els.analysisMemberFeedback.textContent = "Creando cuenta…";
+  els.analysisCredentialsBox.classList.add("hidden");
+
+  try {
+    const result = await invokeAnalysisAccess("create_member", {
+      email,
+      display_name: displayName
+    });
+
+    els.analysisCredentialEmail.textContent = result.member?.email || email;
+    els.analysisCredentialPassword.textContent = result.temporary_password || "—";
+    els.analysisCredentialsBox.classList.remove("hidden");
+    els.analysisMemberForm.reset();
+    els.analysisMemberFeedback.textContent = "✓ Cuenta de analista creada.";
+    await loadAnalysisMembers();
+  } catch (error) {
+    els.analysisMemberFeedback.textContent = `No se pudo crear: ${error.message}`;
+  } finally {
+    els.createAnalysisMemberBtn.disabled = false;
+  }
+}
+
+async function copyAnalysisCredentials() {
+  const email = els.analysisCredentialEmail.textContent;
+  const password = els.analysisCredentialPassword.textContent;
+  if (!email || !password || password === "—") return;
+
+  try {
+    await navigator.clipboard.writeText(`Acceso al análisis\nCorreo: ${email}\nContraseña: ${password}`);
+    els.analysisMemberFeedback.textContent = "✓ Credenciales copiadas.";
+  } catch (_) {
+    els.analysisMemberFeedback.textContent = "No se pudo copiar automáticamente. Copia los valores manualmente.";
+  }
+}
+
+async function loadAnalysisMemberLogs(userId) {
+  if (!isSuperAdmin()) return;
+  const member = analysisMembers.find(item => item.user_id === userId);
+  els.analysisUserLogsTitle.textContent = member?.display_name || member?.email || "Usuario";
+  els.analysisUserLogsPanel.classList.remove("hidden");
+  els.analysisUserLogsBody.innerHTML = '<tr><td colspan="6">Cargando…</td></tr>';
+
+  try {
+    const result = await invokeAnalysisAccess("member_logs", { user_id: userId });
+    const logs = result.logs || [];
+
+    els.analysisUserLogsBody.innerHTML = logs.length
+      ? logs.map(log => {
+          const location = [log.city, log.region_name, log.country_name].filter(Boolean).join(", ") || "—";
+          const device = log.device_id ? `${log.device_id.slice(0, 8)}…` : "—";
+          const ua = log.user_agent || "—";
+          return `<tr>
+            <td>${spainDateTime(log.created_at)}</td>
+            <td>${esc(accessEventLabel(log.event_type))}</td>
+            <td><code>${esc(log.ip_address || "—")}</code></td>
+            <td>${esc(location)}${log.ip_timezone ? `<small>${esc(log.ip_timezone)}</small>` : ""}</td>
+            <td><code>${esc(device)}</code><small>${esc(log.browser_timezone || "")}</small></td>
+            <td class="access-user-agent">${esc(ua)}</td>
+          </tr>`;
+        }).join("")
+      : '<tr><td colspan="6">Todavía no hay accesos registrados.</td></tr>';
+  } catch (error) {
+    els.analysisUserLogsBody.innerHTML = `<tr><td colspan="6">Error: ${esc(error.message)}</td></tr>`;
+  }
+}
+
+async function manageAnalysisMember(action, userId) {
+  if (!isSuperAdmin()) return;
+
+  const member = analysisMembers.find(item => item.user_id === userId);
+  if (!member) return;
+
+  if (action === "logs") {
+    await loadAnalysisMemberLogs(userId);
+    return;
+  }
+
+  const labels = {
+    ban: `¿Banear a ${member.email}? Su acceso privado al análisis será rechazado.`,
+    unban: `¿Reactivar a ${member.email}?`,
+    delete: `¿Eliminar definitivamente la cuenta ${member.email}? Esta acción no se puede deshacer.`
+  };
+
+  if (!confirm(labels[action] || "¿Continuar?")) return;
+
+  const edgeAction = {
+    ban: "ban_member",
+    unban: "unban_member",
+    delete: "delete_member"
+  }[action];
+
+  try {
+    els.analysisMemberFeedback.textContent = "Aplicando cambio…";
+    const result = await invokeAnalysisAccess(edgeAction, { user_id: userId });
+    els.analysisMemberFeedback.textContent = result.auth_warning
+      ? `Cambio aplicado. Aviso de Auth: ${result.auth_warning}`
+      : "✓ Cambio aplicado.";
+    if (action === "delete") els.analysisUserLogsPanel.classList.add("hidden");
+    await loadAnalysisMembers();
+  } catch (error) {
+    els.analysisMemberFeedback.textContent = `No se pudo aplicar: ${error.message}`;
+  }
+}
+
 async function adminLogin(event) {
   event.preventDefault();
   els.adminLoginFeedback.textContent = "Verificando…";
@@ -1873,14 +2249,30 @@ async function adminLogin(event) {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) throw error;
 
-    const user = data.user;
-    if (user?.app_metadata?.role !== "super_admin") {
+    currentUser = data.user;
+    const role = currentUser?.app_metadata?.role;
+
+    if (!["super_admin", "analysis_viewer"].includes(role)) {
       await sb.auth.signOut();
+      currentUser = null;
       await ensureSession();
-      throw new Error("La cuenta es válida, pero no tiene rol de superusuario.");
+      throw new Error("La cuenta es válida, pero no tiene acceso privado a esta aplicación.");
     }
 
-    currentUser = user;
+    if (role === "analysis_viewer") {
+      const allowed = await verifyAnalysisAccess("login");
+      if (!allowed) {
+        await sb.auth.signOut();
+        currentUser = null;
+        analysisAccessGranted = false;
+        analysisViewerProfile = null;
+        await ensureSession();
+        throw new Error("La cuenta de analista está bloqueada, eliminada o no está autorizada.");
+      }
+    } else {
+      analysisAccessGranted = true;
+    }
+
     els.adminPassword.value = "";
     els.adminLoginFeedback.textContent = "";
     els.adminDialog.close();
@@ -1888,17 +2280,27 @@ async function adminLogin(event) {
     await loadFormFields();
     await refreshDashboardData();
     applyAdminUi();
-    els.feedback.textContent = "✓ Modo superusuario activo.";
+
+    els.feedback.textContent = isSuperAdmin()
+      ? "✓ Modo superusuario activo."
+      : "✓ Acceso de analista activo. Ya puedes abrir Análisis.";
   } catch (error) {
     els.adminLoginFeedback.textContent = error.message;
   }
 }
 
-async function adminLogout() {
+async function privateLogout(message = "Sesión privada cerrada.") {
+  stopAnalysisHeartbeat();
   if (els.analysisDialog.open) els.analysisDialog.close();
+  if (els.analysisUsersDialog.open) els.analysisUsersDialog.close();
   if (els.restartDialog.open) els.restartDialog.close();
+
   analyticsRecords = [];
   analyticsLoadedAt = null;
+  analysisMembers = [];
+  analysisAccessGranted = false;
+  analysisViewerProfile = null;
+
   await sb.auth.signOut();
   currentUser = null;
   editingRecordId = null;
@@ -1906,7 +2308,11 @@ async function adminLogout() {
   await loadFormFields();
   await refreshDashboardData();
   applyAdminUi();
-  els.feedback.textContent = "Sesión administrativa cerrada.";
+  els.feedback.textContent = message;
+}
+
+async function adminLogout() {
+  await privateLogout();
 }
 
 function renderFieldsManager() {
@@ -2305,8 +2711,8 @@ els.exportBtn.addEventListener("click", exportCsv);
 els.closeDialogBtn.addEventListener("click", () => els.evidenceDialog.close());
 
 els.adminLoginBtn.addEventListener("click", async () => {
-  if (isSuperAdmin()) {
-    await adminLogout();
+  if (isPrivateUser()) {
+    await privateLogout();
     return;
   }
   els.adminLoginFeedback.textContent = "";
@@ -2316,8 +2722,25 @@ els.adminLoginBtn.addEventListener("click", async () => {
 els.closeAdminDialogBtn.addEventListener("click", () => els.adminDialog.close());
 els.adminLoginForm.addEventListener("submit", adminLogin);
 
+els.analysisUsersBtn.addEventListener("click", openAnalysisUsers);
+els.closeAnalysisUsersDialogBtn.addEventListener("click", () => els.analysisUsersDialog.close());
+els.refreshAnalysisUsersBtn.addEventListener("click", loadAnalysisMembers);
+els.analysisMemberForm.addEventListener("submit", createAnalysisMember);
+els.copyAnalysisCredentialsBtn.addEventListener("click", copyAnalysisCredentials);
+els.closeAnalysisUserLogsBtn.addEventListener("click", () => els.analysisUserLogsPanel.classList.add("hidden"));
+
+els.analysisUsersBody.addEventListener("click", async event => {
+  const button = event.target.closest("[data-access-action]");
+  if (!button) return;
+  await manageAnalysisMember(button.dataset.accessAction, button.dataset.userId);
+});
+
 els.analysisBtn.addEventListener("click", openAnalysis);
-els.closeAnalysisDialogBtn.addEventListener("click", () => els.analysisDialog.close());
+els.closeAnalysisDialogBtn.addEventListener("click", () => {
+  stopAnalysisHeartbeat();
+  els.analysisDialog.close();
+});
+els.analysisDialog.addEventListener("close", stopAnalysisHeartbeat);
 els.refreshAnalysisBtn.addEventListener("click", refreshAnalysis);
 
 document.querySelectorAll(".analysis-tab").forEach(button => {
@@ -2382,9 +2805,23 @@ els.fieldType.addEventListener("change", () => {
   try {
     await ensureSession();
     await refreshCurrentUser();
+
+    if (isAnalysisViewer()) {
+      const allowed = await verifyAnalysisAccess("login");
+      if (!allowed) {
+        await privateLogout("La cuenta de analista ya no tiene acceso activo.");
+        return;
+      }
+    } else if (isSuperAdmin()) {
+      analysisAccessGranted = true;
+      applyAdminUi();
+    }
+
     await loadFormFields();
     await refreshDashboardData();
-    els.feedback.textContent = "✓ Conectado a Supabase. La hora la asigna PostgreSQL.";
+    els.feedback.textContent = isAnalysisViewer()
+      ? "✓ Sesión de analista restaurada. Ya puedes abrir Análisis."
+      : "✓ Conectado a Supabase. La hora la asigna PostgreSQL.";
   } catch (error) {
     els.feedback.textContent = `Error al conectar con Supabase: ${error.message}`;
   }

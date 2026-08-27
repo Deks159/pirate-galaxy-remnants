@@ -819,3 +819,234 @@ body.is-admin #entryBadge {
     text-align: left;
   }
 }
+
+
+/* V3.9 · analistas y control de accesos */
+.analysis-viewer-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(77, 180, 255, .2);
+  border-radius: 14px;
+  background: rgba(77, 180, 255, .045);
+}
+
+.analysis-viewer-banner strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.access-privacy-notice {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 205, 86, .18);
+  border-radius: 12px;
+  background: rgba(255, 205, 86, .035);
+}
+
+.access-privacy-notice strong {
+  color: #f0dca2;
+}
+
+.access-privacy-notice p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+.analysis-users-dialog {
+  width: min(1180px, calc(100% - 24px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+}
+
+.access-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+  gap: 12px;
+}
+
+.access-create-card,
+.access-guidance-card {
+  padding: 14px;
+  border: 1px solid rgba(147, 179, 205, .12);
+  border-radius: 14px;
+  background: rgba(7, 17, 31, .42);
+}
+
+.access-guidance-card h4 {
+  margin: 3px 0 8px;
+}
+
+.access-guidance-card p,
+.access-guidance-card li {
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+.access-guidance-card ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.access-member-form {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  align-items: end;
+  gap: 9px;
+}
+
+.access-member-form label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: .74rem;
+}
+
+.access-member-form input {
+  width: 100%;
+  border: 1px solid rgba(147, 179, 205, .16);
+  border-radius: 11px;
+  background: #091626;
+  color: var(--text);
+  padding: 10px 11px;
+}
+
+.access-credentials {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(94, 240, 178, .2);
+  border-radius: 12px;
+  background: rgba(94, 240, 178, .035);
+}
+
+.access-credentials > p {
+  margin: 5px 0 10px;
+  color: var(--muted);
+  font-size: .75rem;
+}
+
+.credential-line {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.credential-line > span {
+  color: var(--muted);
+  font-size: .73rem;
+}
+
+.credential-line code {
+  display: block;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.access-members-section {
+  margin-top: 12px;
+}
+
+.access-status,
+.access-risk {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 700;
+}
+
+.access-status.active,
+.risk-low {
+  color: #8af0c1;
+  background: rgba(94, 240, 178, .08);
+  border: 1px solid rgba(94, 240, 178, .18);
+}
+
+.access-status.banned,
+.risk-high {
+  color: #ff9b9b;
+  background: rgba(255, 100, 100, .08);
+  border: 1px solid rgba(255, 100, 100, .2);
+}
+
+.risk-medium {
+  color: #ffd273;
+  background: rgba(255, 205, 86, .08);
+  border: 1px solid rgba(255, 205, 86, .2);
+}
+
+.access-row-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mini-btn {
+  border: 1px solid rgba(147, 179, 205, .16);
+  border-radius: 8px;
+  background: rgba(9, 22, 38, .85);
+  color: #d7e4ed;
+  padding: 5px 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: .68rem;
+}
+
+.mini-btn.danger {
+  color: #ffaaaa;
+  border-color: rgba(255, 100, 100, .2);
+}
+
+.mini-btn.ghost {
+  background: transparent;
+}
+
+.access-user-agent {
+  max-width: 320px;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.access-users-table td:first-child strong {
+  display: block;
+}
+
+.access-users-table td:first-child small {
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .access-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-member-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .analysis-users-dialog {
+    width: calc(100% - 12px);
+    max-height: calc(100vh - 12px);
+  }
+
+  .analysis-viewer-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

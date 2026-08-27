@@ -251,3 +251,61 @@ espera se acompañan del tamaño de muestra para evitar interpretar pocos interv
 predicción fiable.
 
 La V3.8 no requiere cambios de esquema ni migraciones nuevas en Supabase.
+
+
+## Accesos privados al análisis (V3.9)
+
+La V3.9 incorpora dos roles privados:
+
+- `super_admin`: mantiene todas las capacidades administrativas y es el único que puede crear,
+  banear, reactivar o eliminar cuentas de análisis.
+- `analysis_viewer`: puede iniciar sesión y abrir el panel **Análisis**, pero no recibe el panel
+  de usuarios ni los controles de reinicio, campos, exportación CSV, edición o eliminación
+  administrativa.
+
+El superadministrador dispone de un nuevo botón **Usuarios**. Desde allí puede:
+
+- Crear una cuenta de analista indicando correo y nombre opcional.
+- Obtener una contraseña temporal generada en el servidor. La contraseña no se almacena en las
+  tablas de la aplicación y se muestra una sola vez.
+- Consultar último acceso, IP, ubicación aproximada, número de IP y dispositivos recientes.
+- Revisar hasta 100 eventos recientes por cuenta.
+- Banear, reactivar o eliminar la cuenta.
+
+### Auditoría y privacidad
+
+Los accesos de `analysis_viewer` pasan por la Edge Function `analysis-access`. Se registran:
+
+- IP pública observada por el servidor.
+- País, región y ciudad **aproximados** derivados de la IP.
+- Zona horaria aproximada de la IP.
+- User-Agent.
+- Identificador aleatorio persistente del navegador (`localStorage`), no una huella digital.
+- Zona horaria e idioma reportados por el navegador.
+- Fecha y tipo de evento.
+
+No se solicita GPS ni coordenadas precisas. La ubicación aproximada se resuelve en el servidor mediante el servicio de geolocalización por IP `ipwho.is`; si el servicio no responde, el acceso sigue funcionando y la ubicación queda vacía. La pantalla de acceso informa al analista de este registro antes de iniciar sesión.
+
+Las señales `Bajo`, `Medio` y `Alto` son indicadores de cambios de acceso, no una acusación de
+cuenta compartida. VPN, CGNAT, redes móviles y viajes pueden producir varias IP o ubicaciones.
+
+### Seguridad
+
+Las operaciones de Auth Admin (`createUser`, `updateUserById`, `deleteUser`) se ejecutan únicamente
+en la Edge Function. La clave secreta/service-role nunca se envía al navegador.
+
+Las tablas `analysis_members` y `analysis_access_logs` tienen RLS activado, no conceden permisos a
+`anon` ni `authenticated`, y sólo se acceden desde código de servidor.
+
+Un analista bloqueado se revalida al iniciar la aplicación, al abrir/actualizar Análisis y mediante
+una verificación periódica mientras el panel está abierto. Esto reduce la ventana de uso de un JWT
+ya emitido tras un baneo.
+
+### Archivos de servidor
+
+El repositorio incluye:
+
+`supabase/functions/analysis-access/index.ts`
+
+La Edge Function V3.9 ya fue desplegada al proyecto conectado y la migración de base ya fue
+aplicada. Al publicar V3.9 en GitHub Pages no es necesario volver a ejecutar `schema.sql`.
