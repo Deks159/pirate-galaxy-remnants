@@ -209,3 +209,45 @@ acelerar la búsqueda de duplicados por ciclo + tipo + clase + plano + tecnolog�
 La migración V3.7 ya fue aplicada al proyecto Supabase conectado. Al publicar esta versión en
 GitHub Pages **no ejecutes `supabase/schema.sql` manualmente**; se conserva como referencia del
 esquema reproducible.
+
+
+## Panel de análisis administrativo (V3.8)
+
+El modo `super_admin` incorpora el botón **Análisis**. La sección carga el histórico completo
+directamente desde Supabase en lotes de 1000 filas y calcula las métricas en el navegador.
+
+Incluye tres áreas:
+
+### Resumen
+- Total de registros.
+- Porcentaje con evidencia.
+- Porcentaje asociado a ciclos.
+- Cobertura y huecos en `cycle_position`.
+- Cobertura de combinaciones comunes.
+- Hallazgos automáticos y avisos sobre tamaño de muestra.
+
+### Comunes / rotación
+- Filtro `XC + SC`, solo `SC` o solo `XC`.
+- Apariciones de cada combinación común.
+- Intervalo promedio y mediano medido en apariciones de clase `Comunes` dentro del mismo ciclo.
+- Cantidad de comunes desde la última aparición.
+- Ranking de espera relativa (`actual / mediana histórica`), solo cuando hay al menos dos
+  intervalos utilizables.
+- Combinaciones que aparecen con mayor frecuencia antes y después de una combinación objetivo.
+- `Cañón · Potente` queda seleccionado por defecto como objetivo inicial.
+
+### Consultar combinación
+Permite elegir tipo, clase, plano y tecnología para responder:
+- Cuántas veces ha aparecido.
+- Cuándo apareció por última vez.
+- En cuántos ciclos aparece.
+- Mediana de registros entre apariciones dentro de ciclos.
+- Cuántos registros han pasado desde la última aparición en el ciclo actual.
+- Posiciones concretas por ciclo.
+- Vecinos anteriores y posteriores más observados.
+
+El panel es descriptivo: no afirma conocer el algoritmo/RNG interno del juego. Las señales de
+espera se acompañan del tamaño de muestra para evitar interpretar pocos intervalos como una
+predicción fiable.
+
+La V3.8 no requiere cambios de esquema ni migraciones nuevas en Supabase.

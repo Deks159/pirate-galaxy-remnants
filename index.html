@@ -22,6 +22,7 @@
     </div>
 
     <div class="top-actions">
+      <button type="button" id="analysisBtn" class="secondary-btn admin-only hidden">Análisis</button>
       <button type="button" id="registerRestartBtn" class="secondary-btn admin-only hidden">Reinicio</button>
       <button type="button" id="manageFieldsBtn" class="secondary-btn admin-only hidden">Campos</button>
       <button type="button" id="adminLoginBtn" class="secondary-btn">Admin</button>
@@ -290,6 +291,194 @@
       </button>
     </form>
     <p id="adminLoginFeedback" class="feedback" aria-live="polite"></p>
+  </dialog>
+
+  <dialog id="analysisDialog" class="analysis-dialog">
+    <div class="dialog-head analysis-dialog-head">
+      <div>
+        <span class="eyebrow">INTELIGENCIA DE REMANENTES</span>
+        <h3>Análisis de rotaciones</h3>
+        <p id="analysisUpdatedAt" class="analysis-updated">Sin cargar</p>
+      </div>
+      <div class="analysis-head-actions">
+        <button type="button" id="refreshAnalysisBtn" class="secondary-btn">Actualizar</button>
+        <button type="button" id="closeAnalysisDialogBtn" class="icon-btn" aria-label="Cerrar">×</button>
+      </div>
+    </div>
+
+    <nav class="analysis-tabs" aria-label="Secciones de análisis">
+      <button type="button" class="analysis-tab active" data-analysis-tab="summary">Resumen</button>
+      <button type="button" class="analysis-tab" data-analysis-tab="commons">Comunes / rotación</button>
+      <button type="button" class="analysis-tab" data-analysis-tab="query">Consultar combinación</button>
+    </nav>
+
+    <div id="analysisLoading" class="analysis-loading hidden">
+      Analizando el histórico completo…
+    </div>
+
+    <p id="analysisFeedback" class="feedback" aria-live="polite"></p>
+
+    <section id="analysisSummaryTab" class="analysis-tab-panel">
+      <div id="analysisSummaryMetrics" class="analysis-metrics"></div>
+
+      <div class="analysis-section">
+        <div class="analysis-section-head">
+          <div>
+            <span class="eyebrow">CALIDAD DE SECUENCIA</span>
+            <h4>Ciclos registrados</h4>
+          </div>
+        </div>
+        <div class="analysis-table-wrap">
+          <table class="analysis-table">
+            <thead>
+              <tr>
+                <th>Ciclo</th>
+                <th>Registros</th>
+                <th>Posiciones</th>
+                <th>Cobertura</th>
+                <th>Huecos</th>
+              </tr>
+            </thead>
+            <tbody id="analysisCyclesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="analysis-section">
+        <div class="analysis-section-head">
+          <div>
+            <span class="eyebrow">HALLAZGOS AUTOMÁTICOS</span>
+            <h4>Lo que ya puede responder la muestra</h4>
+          </div>
+        </div>
+        <div id="analysisFindings" class="analysis-findings"></div>
+      </div>
+    </section>
+
+    <section id="analysisCommonsTab" class="analysis-tab-panel hidden">
+      <div class="analysis-toolbar">
+        <label>
+          <span>Tipo de remanente</span>
+          <select id="analysisCommonType">
+            <option value="">XC + SC</option>
+            <option value="SC">Solo SC</option>
+            <option value="XC">Solo XC</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Combinación objetivo</span>
+          <select id="analysisCommonTarget"></select>
+        </label>
+      </div>
+
+      <div id="analysisCommonMetrics" class="analysis-metrics"></div>
+
+      <div class="analysis-grid-2">
+        <article class="analysis-section">
+          <div class="analysis-section-head">
+            <div>
+              <span class="eyebrow">ANTES / DESPUÉS</span>
+              <h4 id="analysisTransitionTitle">Transiciones observadas</h4>
+            </div>
+          </div>
+          <div id="analysisTransitions" class="analysis-transition-grid"></div>
+        </article>
+
+        <article class="analysis-section">
+          <div class="analysis-section-head">
+            <div>
+              <span class="eyebrow">SEÑAL DE ESPERA</span>
+              <h4>Comunes con mayor espera relativa</h4>
+            </div>
+          </div>
+          <div id="analysisOverdueList" class="analysis-ranked-list"></div>
+        </article>
+      </div>
+
+      <div class="analysis-section">
+        <div class="analysis-section-head">
+          <div>
+            <span class="eyebrow">INTERVALOS ENTRE COMUNES</span>
+            <h4>Frecuencia por combinación</h4>
+          </div>
+          <small>El intervalo se mide en apariciones de clase Comunes dentro del mismo ciclo.</small>
+        </div>
+        <div class="analysis-table-wrap">
+          <table class="analysis-table">
+            <thead>
+              <tr>
+                <th>Combinación</th>
+                <th>Apariciones</th>
+                <th>Intervalos útiles</th>
+                <th>Mediana</th>
+                <th>Promedio</th>
+                <th>Desde última</th>
+                <th>Señal</th>
+              </tr>
+            </thead>
+            <tbody id="analysisCommonIntervalsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="analysisQueryTab" class="analysis-tab-panel hidden">
+      <div class="analysis-query-form">
+        <label>
+          <span>Tipo</span>
+          <select id="analysisQueryType">
+            <option value="">XC + SC</option>
+            <option value="XC">XC</option>
+            <option value="SC">SC</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Clase</span>
+          <select id="analysisQueryClass"></select>
+        </label>
+
+        <label>
+          <span>Plano</span>
+          <select id="analysisQueryBlueprint"></select>
+        </label>
+
+        <label>
+          <span>Tecnología</span>
+          <select id="analysisQueryTechnology"></select>
+        </label>
+      </div>
+
+      <div id="analysisQueryMetrics" class="analysis-metrics"></div>
+
+      <div class="analysis-grid-2">
+        <article class="analysis-section">
+          <div class="analysis-section-head">
+            <div>
+              <span class="eyebrow">POSICIONES</span>
+              <h4>Comportamiento por ciclo</h4>
+            </div>
+          </div>
+          <div id="analysisQueryCycles" class="analysis-ranked-list"></div>
+        </article>
+
+        <article class="analysis-section">
+          <div class="analysis-section-head">
+            <div>
+              <span class="eyebrow">SECUENCIA COMPLETA</span>
+              <h4>Vecinos más observados</h4>
+            </div>
+          </div>
+          <div id="analysisQueryTransitions" class="analysis-transition-grid"></div>
+        </article>
+      </div>
+
+      <div class="analysis-callout">
+        <strong>Interpretación</strong>
+        <p id="analysisQueryInterpretation">Selecciona una combinación para analizarla.</p>
+      </div>
+    </section>
   </dialog>
 
   <dialog id="restartDialog" class="restart-dialog">

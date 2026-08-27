@@ -111,6 +111,34 @@ const els = {
   closeAdminDialogBtn: $("#closeAdminDialogBtn"),
   adminBanner: $("#adminBanner"),
   adminIdentity: $("#adminIdentity"),
+  analysisBtn: $("#analysisBtn"),
+  analysisDialog: $("#analysisDialog"),
+  closeAnalysisDialogBtn: $("#closeAnalysisDialogBtn"),
+  refreshAnalysisBtn: $("#refreshAnalysisBtn"),
+  analysisUpdatedAt: $("#analysisUpdatedAt"),
+  analysisLoading: $("#analysisLoading"),
+  analysisFeedback: $("#analysisFeedback"),
+  analysisSummaryMetrics: $("#analysisSummaryMetrics"),
+  analysisCyclesBody: $("#analysisCyclesBody"),
+  analysisFindings: $("#analysisFindings"),
+  analysisSummaryTab: $("#analysisSummaryTab"),
+  analysisCommonsTab: $("#analysisCommonsTab"),
+  analysisQueryTab: $("#analysisQueryTab"),
+  analysisCommonType: $("#analysisCommonType"),
+  analysisCommonTarget: $("#analysisCommonTarget"),
+  analysisCommonMetrics: $("#analysisCommonMetrics"),
+  analysisTransitionTitle: $("#analysisTransitionTitle"),
+  analysisTransitions: $("#analysisTransitions"),
+  analysisOverdueList: $("#analysisOverdueList"),
+  analysisCommonIntervalsBody: $("#analysisCommonIntervalsBody"),
+  analysisQueryType: $("#analysisQueryType"),
+  analysisQueryClass: $("#analysisQueryClass"),
+  analysisQueryBlueprint: $("#analysisQueryBlueprint"),
+  analysisQueryTechnology: $("#analysisQueryTechnology"),
+  analysisQueryMetrics: $("#analysisQueryMetrics"),
+  analysisQueryCycles: $("#analysisQueryCycles"),
+  analysisQueryTransitions: $("#analysisQueryTransitions"),
+  analysisQueryInterpretation: $("#analysisQueryInterpretation"),
   registerRestartBtn: $("#registerRestartBtn"),
   currentCycleTitle: $("#currentCycleTitle"),
   currentCycleMeta: $("#currentCycleMeta"),
@@ -171,6 +199,9 @@ let currentCycleRecordCount = 0;
 let restartEvidenceBlob = null;
 let restartEvidencePreviewUrl = null;
 let searchDebounceTimer = null;
+let analyticsRecords = [];
+let analyticsLoadedAt = null;
+let activeAnalysisTab = "summary";
 
 const DUPLICATE_WINDOW_MINUTES = 60;
 
@@ -619,6 +650,642 @@ async function countRecords(configureQuery = query => query) {
   return count ?? 0;
 }
 
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function mean(values) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function fmtNumber(value, digits = 1) {
+  if (value == null || Number.isNaN(value)) return "—";
+  return Number(value).toLocaleString("es-ES", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0
+  });
+}
+
+function percent(value, digits = 1) {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${fmtNumber(value * 100, digits)}%`;
+}
+
+function comboLabel(record, includeType = false) {
+  const base = `${record.class_name} · ${record.blueprint} · ${record.technology}`;
+  return includeType ? `${record.remnant_type} · ${base}` : base;
+}
+
+function commonState(record) {
+  return `${record.blueprint} · ${record.technology}`;
+}
+
+function expectedCommonStates() {
+  const states = [];
+  Object.entries(catalog.Comunes).forEach(([blueprint, techs]) => {
+    ["Normal", ...techs].forEach(technology => {
+      const label = `${blueprint} · ${technology}`;
+      if (!states.includes(label)) states.push(label);
+    });
+  });
+  return states;
+}
+
+function cycleGroups(rows = analyticsRecords) {
+  const groups = new Map();
+
+  rows
+    .filter(row => row.server_restart_id && Number.isFinite(Number(row.cycle_position)))
+    .forEach(row => {
+      const key = row.server_restart_id;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: key,
+          number: Number(row.server_restarts?.cycle_number ?? 0),
+          server: row.server_restarts?.server_name || "—",
+          rows: []
+        });
+      }
+      groups.get(key).rows.push(row);
+    });
+
+  [...groups.values()].forEach(group => {
+    group.rows.sort((a, b) => Number(a.cycle_position) - Number(b.cycle_position));
+  });
+
+  return [...groups.values()].sort((a, b) => a.number - b.number);
+}
+
+function latestCycleGroup(rows = analyticsRecords) {
+  const groups = cycleGroups(rows);
+  return groups.length ? groups[groups.length - 1] : null;
+}
+
+function intervalsWithinCycles(targetPredicate, basePredicate = () => true) {
+  const intervals = [];
+
+  cycleGroups().forEach(group => {
+    const base = group.rows.filter(basePredicate);
+    base.forEach((row, index) => {
+      row.__analysisIndex = index + 1;
+    });
+
+    const targetIndexes = base
+      .filter(targetPredicate)
+      .map(row => row.__analysisIndex);
+
+    for (let i = 1; i < targetIndexes.length; i += 1) {
+      intervals.push(targetIndexes[i] - targetIndexes[i - 1]);
+    }
+
+    base.forEach(row => delete row.__analysisIndex);
+  });
+
+  return intervals;
+}
+
+function transitionCounts(targetPredicate, basePredicate = () => true) {
+  const previous = new Map();
+  const next = new Map();
+  let previousSamples = 0;
+  let nextSamples = 0;
+
+  cycleGroups().forEach(group => {
+    const base = group.rows.filter(basePredicate);
+
+    base.forEach((row, index) => {
+      if (!targetPredicate(row)) return;
+
+      if (index > 0) {
+        const label = comboLabel(base[index - 1], basePredicate === commonBasePredicate ? false : true);
+        previous.set(label, (previous.get(label) || 0) + 1);
+        previousSamples += 1;
+      }
+
+      if (index < base.length - 1) {
+        const label = comboLabel(base[index + 1], basePredicate === commonBasePredicate ? false : true);
+        next.set(label, (next.get(label) || 0) + 1);
+        nextSamples += 1;
+      }
+    });
+  });
+
+  const sortMap = map => [...map.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+  return {
+    previous: sortMap(previous),
+    next: sortMap(next),
+    previousSamples,
+    nextSamples
+  };
+}
+
+function commonBasePredicate(row) {
+  if (row.class_name !== "Comunes") return false;
+  const type = els.analysisCommonType?.value || "";
+  return !type || row.remnant_type === type;
+}
+
+function currentCommonElapsed(state) {
+  const current = latestCycleGroup();
+  if (!current) return null;
+
+  const commonRows = current.rows.filter(commonBasePredicate);
+  if (!commonRows.length) return null;
+
+  let lastIndex = null;
+  commonRows.forEach((row, index) => {
+    if (commonState(row) === state) lastIndex = index;
+  });
+
+  if (lastIndex == null) return commonRows.length;
+  return (commonRows.length - 1) - lastIndex;
+}
+
+function commonStatsForState(state) {
+  const predicate = row => commonBasePredicate(row) && commonState(row) === state;
+  const matching = analyticsRecords.filter(predicate);
+  const intervals = intervalsWithinCycles(
+    row => commonState(row) === state,
+    commonBasePredicate
+  );
+  const med = median(intervals);
+  const avg = mean(intervals);
+  const elapsed = currentCommonElapsed(state);
+  const ratio = med && elapsed != null ? elapsed / med : null;
+
+  return {
+    state,
+    count: matching.length,
+    intervals,
+    median: med,
+    mean: avg,
+    elapsed,
+    ratio,
+    last: matching.length
+      ? [...matching].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
+      : null
+  };
+}
+
+function analysisMetric(label, value, detail = "") {
+  return `<article class="analysis-metric">
+    <span>${esc(label)}</span>
+    <strong>${esc(value)}</strong>
+    ${detail ? `<small>${esc(detail)}</small>` : ""}
+  </article>`;
+}
+
+function rankedRows(items, emptyText = "Sin datos suficientes.") {
+  if (!items.length) return `<div class="analysis-empty">${esc(emptyText)}</div>`;
+
+  return items.map((item, index) => `
+    <div class="analysis-ranked-item">
+      <span class="analysis-rank">${index + 1}</span>
+      <div>
+        <strong>${esc(item.label)}</strong>
+        <small>${esc(item.detail || "")}</small>
+      </div>
+      ${item.value ? `<span class="analysis-rank-value">${esc(item.value)}</span>` : ""}
+    </div>
+  `).join("");
+}
+
+function renderTransitionColumn(title, items, samples) {
+  const top = items.slice(0, 5);
+  return `<div class="analysis-transition-column">
+    <h5>${esc(title)}</h5>
+    ${top.length
+      ? top.map(item => `
+          <div class="analysis-transition-row">
+            <span>${esc(item.label)}</span>
+            <strong>${item.count}${samples ? ` · ${percent(item.count / samples, 0)}` : ""}</strong>
+          </div>
+        `).join("")
+      : '<div class="analysis-empty">Sin suficientes vecinos observados.</div>'}
+    <small>${samples} observaciones utilizables</small>
+  </div>`;
+}
+
+async function loadAnalyticsRecords() {
+  if (!isSuperAdmin()) throw new Error("Solo el superusuario puede abrir el análisis.");
+
+  const all = [];
+  const batchSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await sb
+      .from("remnant_records")
+      .select(`
+        id,
+        remnant_type,
+        class_name,
+        blueprint,
+        technology,
+        evidence_path,
+        created_at,
+        extra_data,
+        server_restart_id,
+        cycle_position,
+        server_restarts(cycle_number, server_name)
+      `)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + batchSize - 1);
+
+    if (error) throw error;
+
+    const batch = data || [];
+    all.push(...batch);
+
+    if (batch.length < batchSize) break;
+    from += batchSize;
+  }
+
+  analyticsRecords = all;
+  analyticsLoadedAt = new Date();
+}
+
+function renderAnalysisSummary() {
+  const total = analyticsRecords.length;
+  const withEvidence = analyticsRecords.filter(row => row.evidence_path).length;
+  const withCycle = analyticsRecords.filter(row => row.server_restart_id && row.cycle_position != null).length;
+  const preCycle = total - withCycle;
+  const cycles = cycleGroups();
+  const commons = analyticsRecords.filter(row => row.class_name === "Comunes");
+  const distinctCommon = new Set(commons.map(commonState)).size;
+
+  els.analysisSummaryMetrics.innerHTML = [
+    analysisMetric("Registros", String(total), "histórico completo"),
+    analysisMetric("Con evidencia", percent(total ? withEvidence / total : 0), `${withEvidence} de ${total}`),
+    analysisMetric("Con ciclo", percent(total ? withCycle / total : 0), `${withCycle} asociados`),
+    analysisMetric("Ciclos", String(cycles.length), `${preCycle} registros previos a ciclos`),
+    analysisMetric("Comunes", String(commons.length), `${distinctCommon}/${expectedCommonStates().length} combinaciones observadas`)
+  ].join("");
+
+  els.analysisCyclesBody.innerHTML = cycles.length
+    ? cycles.map(group => {
+        const positions = group.rows.map(row => Number(row.cycle_position)).filter(Number.isFinite);
+        const max = positions.length ? Math.max(...positions) : 0;
+        const min = positions.length ? Math.min(...positions) : 0;
+        const expected = max > 0 ? max : group.rows.length;
+        const set = new Set(positions);
+        const missing = [];
+
+        if (max > 0) {
+          for (let p = 1; p <= max; p += 1) {
+            if (!set.has(p)) missing.push(p);
+          }
+        }
+
+        const coverage = expected ? group.rows.length / expected : 0;
+
+        return `<tr>
+          <td><strong>#${group.number || "?"}</strong><small>${esc(group.server)}</small></td>
+          <td>${group.rows.length}</td>
+          <td>${min || "—"}–${max || "—"}</td>
+          <td>${percent(coverage)}</td>
+          <td>${missing.length
+            ? `<span class="analysis-warning">${missing.length} · ${esc(missing.slice(0, 8).join(", "))}${missing.length > 8 ? "…" : ""}</span>`
+            : '<span class="analysis-good">Completo</span>'}</td>
+        </tr>`;
+      }).join("")
+    : '<tr><td colspan="5">Aún no hay ciclos registrados.</td></tr>';
+
+  const sc = analyticsRecords.filter(row => row.remnant_type === "SC").length;
+  const xc = analyticsRecords.filter(row => row.remnant_type === "XC").length;
+  const commonStates = expectedCommonStates().map(commonStatsForState);
+  const usefulSignals = commonStates
+    .filter(item => item.intervals.length >= 2 && item.ratio != null)
+    .sort((a, b) => b.ratio - a.ratio);
+
+  const current = latestCycleGroup();
+  const currentCommonRows = current?.rows.filter(row => row.class_name === "Comunes") || [];
+  const currentDistinctCommon = new Set(currentCommonRows.map(commonState)).size;
+
+  const cannonPower = commonStatsForState("Cañón · Potente");
+  const cannonDetail = cannonPower.intervals.length
+    ? `Cañón · Potente tiene ${cannonPower.count} apariciones registradas y ${cannonPower.intervals.length} intervalo(s) comparable(s); mediana: ${fmtNumber(cannonPower.median)} comunes.`
+    : `Cañón · Potente tiene ${cannonPower.count} apariciones, pero todavía no hay suficientes repeticiones dentro de ciclos para estimar un intervalo.`;
+
+  const findings = [
+    {
+      title: "Distribución XC / SC",
+      body: `${sc} SC (${percent(total ? sc / total : 0)}) y ${xc} XC (${percent(total ? xc / total : 0)}).`
+    },
+    {
+      title: "Cobertura de comunes",
+      body: `Ya aparecen ${distinctCommon} de ${expectedCommonStates().length} combinaciones posibles de la clase Comunes en el histórico.`
+    },
+    {
+      title: "Ciclo actual",
+      body: current
+        ? `El ciclo #${current.number} tiene ${current.rows.length} registros y ${currentCommonRows.length} comunes; ${currentDistinctCommon} combinaciones comunes distintas.`
+        : "Todavía no existe un ciclo actual."
+    },
+    {
+      title: "Pregunta: Cañón Potente",
+      body: cannonDetail
+    }
+  ];
+
+  if (usefulSignals.length) {
+    const top = usefulSignals[0];
+    findings.push({
+      title: "Mayor espera relativa entre comunes",
+      body: `${top.state}: lleva ${top.elapsed} comunes desde su última aparición frente a una mediana histórica de ${fmtNumber(top.median)}. Señal relativa ${fmtNumber(top.ratio, 2)}×, basada en ${top.intervals.length} intervalos.`
+    });
+  }
+
+  findings.push({
+    title: "Precaución estadística",
+    body: "Una señal alta no significa que el plano vaya a salir enseguida. La pestaña muestra patrones observados y tamaño de muestra; no asume conocer el RNG interno del juego."
+  });
+
+  els.analysisFindings.innerHTML = findings.map(item => `
+    <article class="analysis-finding">
+      <strong>${esc(item.title)}</strong>
+      <p>${esc(item.body)}</p>
+    </article>
+  `).join("");
+}
+
+function populateCommonTargets() {
+  const current = els.analysisCommonTarget.value;
+  const options = expectedCommonStates();
+
+  els.analysisCommonTarget.innerHTML = options
+    .map(state => `<option value="${esc(state)}">${esc(state)}</option>`)
+    .join("");
+
+  if (options.includes(current)) els.analysisCommonTarget.value = current;
+  else if (options.includes("Cañón · Potente")) els.analysisCommonTarget.value = "Cañón · Potente";
+}
+
+function renderAnalysisCommons() {
+  populateCommonTargets();
+
+  const states = expectedCommonStates().map(commonStatsForState);
+  const targetState = els.analysisCommonTarget.value || "Cañón · Potente";
+  const target = states.find(item => item.state === targetState) || commonStatsForState(targetState);
+  const current = latestCycleGroup();
+  const currentCommon = current?.rows.filter(commonBasePredicate) || [];
+  const currentDistinct = new Set(currentCommon.map(commonState)).size;
+
+  els.analysisCommonMetrics.innerHTML = [
+    analysisMetric("Comunes analizados", String(
+      analyticsRecords.filter(commonBasePredicate).length
+    ), els.analysisCommonType.value || "XC + SC"),
+    analysisMetric("Combinaciones distintas", String(
+      new Set(analyticsRecords.filter(commonBasePredicate).map(commonState)).size
+    ), `${expectedCommonStates().length} esperadas`),
+    analysisMetric(`Apariciones: ${targetState}`, String(target.count), `${target.intervals.length} intervalos útiles`),
+    analysisMetric("Mediana del intervalo", target.median == null ? "—" : `${fmtNumber(target.median)} comunes`, "solo dentro del mismo ciclo"),
+    analysisMetric("Desde la última", target.elapsed == null ? "—" : `${target.elapsed} comunes`, current ? `ciclo #${current.number}` : "sin ciclo")
+  ].join("");
+
+  const targetTransitions = transitionCounts(
+    row => commonState(row) === targetState,
+    commonBasePredicate
+  );
+
+  els.analysisTransitionTitle.textContent = targetState;
+  els.analysisTransitions.innerHTML =
+    renderTransitionColumn("Suele aparecer antes", targetTransitions.previous, targetTransitions.previousSamples) +
+    renderTransitionColumn("Suele aparecer después", targetTransitions.next, targetTransitions.nextSamples);
+
+  const overdue = states
+    .filter(item => item.intervals.length >= 2 && item.ratio != null)
+    .sort((a, b) => b.ratio - a.ratio)
+    .slice(0, 8)
+    .map(item => ({
+      label: item.state,
+      detail: `${item.elapsed} comunes desde última · mediana ${fmtNumber(item.median)} · ${item.intervals.length} intervalos`,
+      value: `${fmtNumber(item.ratio, 2)}×`
+    }));
+
+  els.analysisOverdueList.innerHTML = rankedRows(
+    overdue,
+    "Aún faltan repeticiones suficientes para calcular señales de espera."
+  );
+
+  els.analysisCommonIntervalsBody.innerHTML = states.map(item => {
+    let signal = "Muestra insuficiente";
+    let signalClass = "analysis-muted";
+
+    if (item.intervals.length >= 2 && item.ratio != null) {
+      if (item.ratio >= 1.5) {
+        signal = `${fmtNumber(item.ratio, 2)}× alta`;
+        signalClass = "analysis-warning";
+      } else if (item.ratio >= 0.8) {
+        signal = `${fmtNumber(item.ratio, 2)}× cerca`;
+        signalClass = "analysis-good";
+      } else {
+        signal = `${fmtNumber(item.ratio, 2)}× reciente`;
+      }
+    }
+
+    return `<tr>
+      <td><strong>${esc(item.state)}</strong></td>
+      <td>${item.count}</td>
+      <td>${item.intervals.length}</td>
+      <td>${item.median == null ? "—" : fmtNumber(item.median)}</td>
+      <td>${item.mean == null ? "—" : fmtNumber(item.mean)}</td>
+      <td>${item.elapsed == null ? "—" : item.elapsed}</td>
+      <td><span class="${signalClass}">${esc(signal)}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+function populateAnalysisQueryControls(resetBlueprint = false, resetTechnology = false) {
+  const classes = Object.keys(catalog);
+  const previousClass = els.analysisQueryClass.value;
+
+  if (!els.analysisQueryClass.options.length) {
+    els.analysisQueryClass.innerHTML = classes
+      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
+      .join("");
+    els.analysisQueryClass.value = classes.includes("Comunes") ? "Comunes" : classes[0];
+  } else if (!classes.includes(previousClass)) {
+    els.analysisQueryClass.value = classes[0];
+  }
+
+  const className = els.analysisQueryClass.value;
+  const blueprints = Object.keys(catalog[className] || {});
+  const previousBlueprint = els.analysisQueryBlueprint.value;
+
+  if (resetBlueprint || !blueprints.includes(previousBlueprint)) {
+    els.analysisQueryBlueprint.innerHTML = blueprints
+      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
+      .join("");
+    els.analysisQueryBlueprint.value = blueprints.includes("Cañón") ? "Cañón" : blueprints[0];
+  }
+
+  const blueprint = els.analysisQueryBlueprint.value;
+  const technologies = [...new Set(["Normal", ...(catalog[className]?.[blueprint] || [])])];
+  const previousTechnology = els.analysisQueryTechnology.value;
+
+  if (resetTechnology || !technologies.includes(previousTechnology)) {
+    els.analysisQueryTechnology.innerHTML = technologies
+      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
+      .join("");
+    els.analysisQueryTechnology.value = technologies.includes("Potente")
+      ? "Potente"
+      : technologies[0];
+  }
+}
+
+function queryCombinationPredicate(row) {
+  const type = els.analysisQueryType.value;
+  return (!type || row.remnant_type === type)
+    && row.class_name === els.analysisQueryClass.value
+    && row.blueprint === els.analysisQueryBlueprint.value
+    && row.technology === els.analysisQueryTechnology.value;
+}
+
+function renderAnalysisQuery() {
+  populateAnalysisQueryControls();
+
+  const matches = analyticsRecords.filter(queryCombinationPredicate)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  const last = matches.length ? matches[matches.length - 1] : null;
+  const cyclesPresent = new Set(matches.filter(row => row.server_restart_id).map(row => row.server_restart_id)).size;
+  const cycleIntervals = intervalsWithinCycles(queryCombinationPredicate, () => true);
+  const medPositionGap = median(cycleIntervals);
+
+  const current = latestCycleGroup();
+  const currentMatches = current?.rows.filter(queryCombinationPredicate) || [];
+  const currentLast = currentMatches.length ? currentMatches[currentMatches.length - 1] : null;
+  const currentMax = current?.rows.length
+    ? Math.max(...current.rows.map(row => Number(row.cycle_position) || 0))
+    : null;
+
+  let sinceCurrent = null;
+  if (current && currentMax != null) {
+    sinceCurrent = currentLast
+      ? currentMax - Number(currentLast.cycle_position)
+      : currentMax;
+  }
+
+  els.analysisQueryMetrics.innerHTML = [
+    analysisMetric("Apariciones", String(matches.length), `${cyclesPresent} ciclos con presencia`),
+    analysisMetric("Última vez", last ? spainDateTime(last.created_at) : "Nunca", last ? `posición ${last.cycle_position ?? "sin ciclo"}` : ""),
+    analysisMetric("Mediana entre apariciones", medPositionGap == null ? "—" : `${fmtNumber(medPositionGap)} registros`, `${cycleIntervals.length} intervalos útiles`),
+    analysisMetric("Desde última en ciclo actual", sinceCurrent == null ? "—" : `${sinceCurrent} registros`, current ? `ciclo #${current.number}` : "sin ciclo")
+  ].join("");
+
+  const byCycle = cycleGroups()
+    .map(group => {
+      const rows = group.rows.filter(queryCombinationPredicate);
+      return {
+        group,
+        rows
+      };
+    })
+    .filter(item => item.rows.length)
+    .sort((a, b) => b.group.number - a.group.number)
+    .slice(0, 10)
+    .map(item => ({
+      label: `Ciclo #${item.group.number}`,
+      detail: `posiciones: ${item.rows.map(row => row.cycle_position).join(", ")}`,
+      value: `${item.rows.length}×`
+    }));
+
+  els.analysisQueryCycles.innerHTML = rankedRows(
+    byCycle,
+    "La combinación no aparece dentro de ciclos registrados."
+  );
+
+  const transitions = transitionCounts(queryCombinationPredicate, () => true);
+  els.analysisQueryTransitions.innerHTML =
+    renderTransitionColumn("Antes", transitions.previous, transitions.previousSamples) +
+    renderTransitionColumn("Después", transitions.next, transitions.nextSamples);
+
+  if (!matches.length) {
+    els.analysisQueryInterpretation.textContent =
+      "No hay apariciones registradas de esta combinación. No se puede inferir frecuencia ni secuencia todavía.";
+    return;
+  }
+
+  const typeText = els.analysisQueryType.value || "XC + SC";
+  const parts = [
+    `Hay ${matches.length} apariciones registradas (${typeText}).`
+  ];
+
+  if (medPositionGap != null) {
+    parts.push(`Dentro de ciclos, la mediana entre repeticiones es de ${fmtNumber(medPositionGap)} registros, calculada con ${cycleIntervals.length} intervalos.`);
+  } else {
+    parts.push("Todavía no hay suficientes repeticiones dentro de un mismo ciclo para calcular una mediana fiable.");
+  }
+
+  if (sinceCurrent != null) {
+    parts.push(currentLast
+      ? `En el ciclo actual han pasado ${sinceCurrent} registros desde su última aparición.`
+      : `Todavía no aparece en el ciclo actual, que lleva ${currentMax} posiciones registradas.`);
+  }
+
+  if (cycleIntervals.length < 5) {
+    parts.push("La muestra sigue siendo pequeña; úsalo como señal descriptiva, no como predicción.");
+  }
+
+  els.analysisQueryInterpretation.textContent = parts.join(" ");
+}
+
+function renderActiveAnalysisTab() {
+  els.analysisSummaryTab.classList.toggle("hidden", activeAnalysisTab !== "summary");
+  els.analysisCommonsTab.classList.toggle("hidden", activeAnalysisTab !== "commons");
+  els.analysisQueryTab.classList.toggle("hidden", activeAnalysisTab !== "query");
+
+  document.querySelectorAll(".analysis-tab").forEach(button => {
+    button.classList.toggle("active", button.dataset.analysisTab === activeAnalysisTab);
+  });
+
+  if (activeAnalysisTab === "summary") renderAnalysisSummary();
+  if (activeAnalysisTab === "commons") renderAnalysisCommons();
+  if (activeAnalysisTab === "query") renderAnalysisQuery();
+}
+
+async function refreshAnalysis() {
+  els.analysisLoading.classList.remove("hidden");
+  els.analysisFeedback.textContent = "";
+  els.refreshAnalysisBtn.disabled = true;
+
+  try {
+    await loadAnalyticsRecords();
+    els.analysisUpdatedAt.textContent = `Actualizado ${spainDateTime(analyticsLoadedAt)}`;
+    renderActiveAnalysisTab();
+  } catch (error) {
+    console.error("Error cargando análisis", error);
+    els.analysisFeedback.textContent = `No se pudo cargar el análisis: ${error.message}`;
+  } finally {
+    els.analysisLoading.classList.add("hidden");
+    els.refreshAnalysisBtn.disabled = false;
+  }
+}
+
+async function openAnalysis() {
+  if (!isSuperAdmin()) return;
+
+  els.analysisDialog.showModal();
+
+  if (!analyticsRecords.length) {
+    await refreshAnalysis();
+  } else {
+    renderActiveAnalysisTab();
+  }
+}
+
 async function loadCurrentCycle() {
   const { data, error } = await sb
     .from("server_restarts")
@@ -809,6 +1476,7 @@ function applyAdminUi() {
   const admin = isSuperAdmin();
   document.body.classList.toggle("is-admin", admin);
   els.adminBanner.classList.toggle("hidden", !admin);
+  els.analysisBtn.classList.toggle("hidden", !admin);
   els.registerRestartBtn.classList.toggle("hidden", !admin);
   els.manageFieldsBtn.classList.toggle("hidden", !admin);
   els.exportBtn.classList.toggle("hidden", !admin);
@@ -1227,7 +1895,10 @@ async function adminLogin(event) {
 }
 
 async function adminLogout() {
+  if (els.analysisDialog.open) els.analysisDialog.close();
   if (els.restartDialog.open) els.restartDialog.close();
+  analyticsRecords = [];
+  analyticsLoadedAt = null;
   await sb.auth.signOut();
   currentUser = null;
   editingRecordId = null;
@@ -1644,6 +2315,31 @@ els.adminLoginBtn.addEventListener("click", async () => {
 
 els.closeAdminDialogBtn.addEventListener("click", () => els.adminDialog.close());
 els.adminLoginForm.addEventListener("submit", adminLogin);
+
+els.analysisBtn.addEventListener("click", openAnalysis);
+els.closeAnalysisDialogBtn.addEventListener("click", () => els.analysisDialog.close());
+els.refreshAnalysisBtn.addEventListener("click", refreshAnalysis);
+
+document.querySelectorAll(".analysis-tab").forEach(button => {
+  button.addEventListener("click", () => {
+    activeAnalysisTab = button.dataset.analysisTab;
+    renderActiveAnalysisTab();
+  });
+});
+
+els.analysisCommonType.addEventListener("change", renderAnalysisCommons);
+els.analysisCommonTarget.addEventListener("change", renderAnalysisCommons);
+
+els.analysisQueryType.addEventListener("change", renderAnalysisQuery);
+els.analysisQueryClass.addEventListener("change", () => {
+  populateAnalysisQueryControls(true, true);
+  renderAnalysisQuery();
+});
+els.analysisQueryBlueprint.addEventListener("change", () => {
+  populateAnalysisQueryControls(false, true);
+  renderAnalysisQuery();
+});
+els.analysisQueryTechnology.addEventListener("change", renderAnalysisQuery);
 
 els.registerRestartBtn.addEventListener("click", () => {
   if (!isSuperAdmin()) return;
