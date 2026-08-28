@@ -309,3 +309,12 @@ El repositorio incluye:
 
 La Edge Function V3.9 ya fue desplegada al proyecto conectado y la migración de base ya fue
 aplicada. Al publicar V3.9 en GitHub Pages no es necesario volver a ejecutar `schema.sql`.
+
+
+## V4.0 · identificación de piloto y nuevo comportamiento XC
+
+Al acceder con una sesión anónima, el panel solicita obligatoriamente el nombre de piloto antes de permitir el uso del panel público. El valor se conserva en `sessionStorage` durante esa sesión y cada registro anónimo agrega automáticamente `extra_data.pilot_name`. El campo dinámico `pilot_name` deja de mostrarse a usuarios anónimos para evitar captura duplicada.
+
+Los XC nuevos ya no usan el catálogo tradicional de planos/tecnologías. El formulario XC permite seleccionar `Mejora de aleación`, `Mejora estela de motor` o `Mejora ranura de componente`, y pide un texto libre con el detalle exacto observado. Para conservar el esquema actual, el tipo de mejora se guarda en `class_name`, el detalle libre en `blueprint` y `technology` se guarda internamente como `Normal` (la interfaz muestra `—`). Los XC históricos permanecen intactos y SC conserva clase → plano → tecnología.
+
+La consulta de análisis admite también los XC modernos y carga los detalles observados desde el histórico. No se requiere migración nueva de Supabase para esta versión.

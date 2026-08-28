@@ -22,6 +22,7 @@
     </div>
 
     <div class="top-actions">
+      <button type="button" id="changePilotBtn" class="secondary-btn hidden">Piloto: —</button>
       <button type="button" id="analysisBtn" class="secondary-btn admin-only hidden">Análisis</button>
       <button type="button" id="analysisUsersBtn" class="secondary-btn admin-only hidden">Usuarios</button>
       <button type="button" id="registerRestartBtn" class="secondary-btn admin-only hidden">Reinicio</button>
@@ -119,20 +120,39 @@
           </div>
         </div>
 
-        <div class="field-group">
-          <label for="classSelect">Clase</label>
-          <select id="classSelect"></select>
+        <div id="xcFields" class="entry-mode-fields">
+          <div class="field-group">
+            <label for="xcUpgradeType">Tipo de mejora XC</label>
+            <select id="xcUpgradeType">
+              <option value="Mejora de aleación">Mejora de aleación</option>
+              <option value="Mejora estela de motor">Mejora estela de motor</option>
+              <option value="Mejora ranura de componente">Mejora ranura de componente</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label for="xcUpgradeDetail">Detalle exacto de la mejora</label>
+            <input id="xcUpgradeDetail" type="text" maxlength="180" placeholder="Escribe exactamente lo que aparece en el juego" autocomplete="off">
+            <small class="helper-text">Como todavía no conocemos todas las variantes, este campo es libre. Escríbelo tal como aparece.</small>
+          </div>
         </div>
 
-        <div class="field-group">
-          <label for="blueprintSelect">Tipo de plano</label>
-          <select id="blueprintSelect"></select>
-        </div>
+        <div id="scFields" class="entry-mode-fields hidden">
+          <div class="field-group">
+            <label for="classSelect">Clase</label>
+            <select id="classSelect"></select>
+          </div>
 
-        <div class="field-group">
-          <label>Tecnología</label>
-          <div id="technologyGroup" class="tech-grid"></div>
-          <small class="helper-text">Todos los planos incluyen la variante Normal.</small>
+          <div class="field-group">
+            <label for="blueprintSelect">Tipo de plano</label>
+            <select id="blueprintSelect"></select>
+          </div>
+
+          <div class="field-group">
+            <label>Tecnología</label>
+            <div id="technologyGroup" class="tech-grid"></div>
+            <small class="helper-text">Todos los planos incluyen la variante Normal.</small>
+          </div>
         </div>
 
         <div id="dynamicFields"></div>
@@ -196,7 +216,7 @@
       <div class="filters">
         <label>
           <span>Buscar</span>
-          <input id="searchInput" type="search" placeholder="Plano, clase, tecnología, piloto...">
+          <input id="searchInput" type="search" placeholder="Plano, mejora, clase, tecnología, piloto...">
         </label>
         <label>
           <span>Tipo</span>
@@ -207,7 +227,7 @@
           </select>
         </label>
         <label>
-          <span>Clase</span>
+          <span>Clase / tipo de mejora</span>
           <select id="filterClass">
             <option value="">Todas</option>
           </select>
@@ -233,8 +253,8 @@
               <th>Fecha / hora España</th>
               <th>Ciclo / posición</th>
               <th>Tipo</th>
-              <th>Clase</th>
-              <th>Plano</th>
+              <th>Clase / tipo</th>
+              <th>Plano / detalle</th>
               <th>Tecnología</th>
               <th>Datos extra</th>
               <th>Evidencia</th>
@@ -266,6 +286,18 @@
       </div>
     </section>
   </main>
+
+  <dialog id="pilotDialog" class="pilot-dialog">
+    <form id="pilotForm" class="pilot-form">
+      <span class="eyebrow">IDENTIFICACIÓN</span>
+      <h3>Nombre de piloto</h3>
+      <p>Escribe tu nombre dentro de Pirate Galaxy para entrar al panel público.</p>
+      <label for="pilotNameInput">Piloto</label>
+      <input id="pilotNameInput" type="text" minlength="2" maxlength="60" autocomplete="nickname" placeholder="Ej. DarkStar" required>
+      <button type="submit" class="primary-btn"><span>Entrar</span><span>→</span></button>
+      <p id="pilotFeedback" class="feedback" aria-live="polite"></p>
+    </form>
+  </dialog>
 
   <dialog id="evidenceDialog">
     <div class="dialog-head">
@@ -551,12 +583,12 @@
         </label>
 
         <label>
-          <span>Clase</span>
+          <span>Clase / tipo</span>
           <select id="analysisQueryClass"></select>
         </label>
 
         <label>
-          <span>Plano</span>
+          <span>Plano / detalle</span>
           <select id="analysisQueryBlueprint"></select>
         </label>
 

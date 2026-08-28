@@ -55,6 +55,14 @@ const catalog = {
   }
 };
 
+const XC_UPGRADE_TYPES = [
+  "Mejora de aleación",
+  "Mejora estela de motor",
+  "Mejora ranura de componente"
+];
+
+const PILOT_SESSION_KEY = "pg_anonymous_pilot_name_v1";
+
 const cfg = window.REMNANT_CONFIG || {};
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
   !cfg.SUPABASE_URL.includes("TU-PROYECTO") && !cfg.SUPABASE_ANON_KEY.includes("TU-");
@@ -64,6 +72,10 @@ const $ = selector => document.querySelector(selector);
 const els = {
   spainClock: $("#spainClock"),
   remnantTypeGroup: $("#remnantTypeGroup"),
+  xcFields: $("#xcFields"),
+  scFields: $("#scFields"),
+  xcUpgradeType: $("#xcUpgradeType"),
+  xcUpgradeDetail: $("#xcUpgradeDetail"),
   classSelect: $("#classSelect"),
   blueprintSelect: $("#blueprintSelect"),
   technologyGroup: $("#technologyGroup"),
@@ -102,6 +114,11 @@ const els = {
   dialogTitle: $("#dialogTitle"),
   dialogImage: $("#dialogImage"),
   closeDialogBtn: $("#closeDialogBtn"),
+  pilotDialog: $("#pilotDialog"),
+  pilotForm: $("#pilotForm"),
+  pilotNameInput: $("#pilotNameInput"),
+  pilotFeedback: $("#pilotFeedback"),
+  changePilotBtn: $("#changePilotBtn"),
   adminLoginBtn: $("#adminLoginBtn"),
   adminDialog: $("#adminDialog"),
   adminLoginForm: $("#adminLoginForm"),
@@ -227,6 +244,8 @@ let analysisAccessGranted = false;
 let analysisViewerProfile = null;
 let analysisHeartbeatTimer = null;
 let analysisMembers = [];
+let anonymousPilotName = "";
+let editingLegacyXc = false;
 
 const DUPLICATE_WINDOW_MINUTES = 60;
 const ANALYSIS_DEVICE_KEY = "pg_analysis_device_id_v1";
@@ -242,6 +261,74 @@ function isAnalysisViewer(user = currentUser) {
 
 function isPrivateUser(user = currentUser) {
   return isSuperAdmin(user) || isAnalysisViewer(user);
+}
+
+function isAnonymousUser(user = currentUser) {
+  return user?.is_anonymous === true;
+}
+
+function isModernXcRecord(record) {
+  return record?.remnant_type === "XC" && XC_UPGRADE_TYPES.includes(record?.class_name);
+}
+
+function currentEntryFields() {
+  if (selectedType === "XC" && !editingLegacyXc) {
+    const detail = els.xcUpgradeDetail.value.trim();
+    if (!detail) throw new Error("Escribe el detalle exacto de la mejora XC.");
+    return { class_name: els.xcUpgradeType.value, blueprint: detail, technology: "Normal" };
+  }
+  return { class_name: els.classSelect.value, blueprint: els.blueprintSelect.value, technology: selectedTechnology };
+}
+
+function recordTechnologyForDisplay(record) {
+  return isModernXcRecord(record) ? "—" : record.technology;
+}
+
+function recordSummary(record) {
+  return isModernXcRecord(record)
+    ? `${record.class_name} · ${record.blueprint}`
+    : `${record.blueprint} · ${record.technology}`;
+}
+
+function updateEntryMode() {
+  const modernXc = selectedType === "XC" && !editingLegacyXc;
+  els.xcFields.classList.toggle("hidden", !modernXc);
+  els.scFields.classList.toggle("hidden", modernXc);
+  if (modernXc) {
+    selectedTechnology = "Normal";
+    els.entryTitle.textContent = editingRecordId ? "Editar mejora XC" : "Registrar mejora XC";
+  } else if (!editingRecordId) {
+    els.entryTitle.textContent = "Registrar remanente";
+  }
+}
+
+function loadPilotFromSession() {
+  anonymousPilotName = (sessionStorage.getItem(PILOT_SESSION_KEY) || "").trim();
+  return anonymousPilotName;
+}
+
+function updatePilotUi() {
+  const show = isAnonymousUser() && Boolean(anonymousPilotName);
+  els.changePilotBtn.classList.toggle("hidden", !show);
+  els.changePilotBtn.textContent = show ? `Piloto: ${anonymousPilotName}` : "Piloto: —";
+}
+
+async function ensureAnonymousPilot(force = false) {
+  if (!isAnonymousUser()) {
+    anonymousPilotName = "";
+    updatePilotUi();
+    return;
+  }
+  if (!force && loadPilotFromSession()) {
+    updatePilotUi();
+    return;
+  }
+  anonymousPilotName = "";
+  els.pilotNameInput.value = "";
+  els.pilotFeedback.textContent = "";
+  updatePilotUi();
+  if (!els.pilotDialog.open) els.pilotDialog.showModal();
+  requestAnimationFrame(() => els.pilotNameInput.focus());
 }
 
 function canViewAnalysis() {
@@ -543,6 +630,11 @@ function populateClasses() {
     els.classSelect.add(new Option(name, name));
     els.filterClass.add(new Option(name, name));
   });
+  XC_UPGRADE_TYPES.forEach(name => {
+    if (![...els.filterClass.options].some(option => option.value === name)) {
+      els.filterClass.add(new Option(name, name));
+    }
+  });
   populateBlueprints();
 }
 
@@ -573,10 +665,12 @@ function populateTechnologies(preferred = null) {
   });
 }
 
-function setSelectedType(value) {
+function setSelectedType(value, { preserveLegacy = false } = {}) {
   selectedType = value;
+  if (!preserveLegacy) editingLegacyXc = false;
   els.remnantTypeGroup.querySelectorAll(".segment")
     .forEach(btn => btn.classList.toggle("active", btn.dataset.value === value));
+  updateEntryMode();
 }
 
 function renderDynamicFields(values = {}) {
@@ -584,6 +678,7 @@ function renderDynamicFields(values = {}) {
   const activeFields = formFields.filter(f => f.active);
 
   activeFields.forEach(field => {
+    if (field.field_key === "pilot_name" && isAnonymousUser()) return;
     const wrap = document.createElement("div");
     wrap.className = "field-group dynamic-field";
     wrap.dataset.fieldKey = field.field_key;
@@ -632,6 +727,7 @@ function collectExtraData() {
   const data = {};
 
   for (const field of formFields.filter(f => f.active)) {
+    if (field.field_key === "pilot_name" && isAnonymousUser()) continue;
     const input = els.dynamicFields.querySelector(`[data-dynamic-key="${CSS.escape(field.field_key)}"]`);
     if (!input) continue;
 
@@ -648,6 +744,11 @@ function collectExtraData() {
     if (field.field_type === "checkbox") data[field.field_key] = value;
   }
 
+  if (isAnonymousUser()) {
+    const pilot = anonymousPilotName.trim();
+    if (!pilot) throw new Error("Indica tu nombre de piloto antes de registrar remanentes.");
+    data.pilot_name = pilot;
+  }
   return data;
 }
 
@@ -1252,40 +1353,48 @@ function renderAnalysisCommons() {
 }
 
 function populateAnalysisQueryControls(resetBlueprint = false, resetTechnology = false) {
+  const queryType = els.analysisQueryType.value;
+
+  if (queryType === "XC") {
+    const previousClass = els.analysisQueryClass.value;
+    els.analysisQueryClass.innerHTML = XC_UPGRADE_TYPES.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+    els.analysisQueryClass.value = XC_UPGRADE_TYPES.includes(previousClass) ? previousClass : XC_UPGRADE_TYPES[0];
+
+    const className = els.analysisQueryClass.value;
+    const observed = [...new Set(analyticsRecords.filter(row => row.remnant_type === "XC" && row.class_name === className).map(row => row.blueprint).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "es"));
+    const previousBlueprint = els.analysisQueryBlueprint.value;
+    els.analysisQueryBlueprint.innerHTML = observed.length
+      ? observed.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("")
+      : '<option value="">Sin datos todavía</option>';
+    if (observed.includes(previousBlueprint)) els.analysisQueryBlueprint.value = previousBlueprint;
+
+    els.analysisQueryTechnology.innerHTML = '<option value="Normal">—</option>';
+    els.analysisQueryTechnology.value = "Normal";
+    els.analysisQueryTechnology.disabled = true;
+    return;
+  }
+
+  els.analysisQueryTechnology.disabled = false;
   const classes = Object.keys(catalog);
   const previousClass = els.analysisQueryClass.value;
-
-  if (!els.analysisQueryClass.options.length) {
-    els.analysisQueryClass.innerHTML = classes
-      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
-      .join("");
-    els.analysisQueryClass.value = classes.includes("Comunes") ? "Comunes" : classes[0];
-  } else if (!classes.includes(previousClass)) {
-    els.analysisQueryClass.value = classes[0];
-  }
+  els.analysisQueryClass.innerHTML = classes.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+  els.analysisQueryClass.value = classes.includes(previousClass) ? previousClass : (classes.includes("Comunes") ? "Comunes" : classes[0]);
 
   const className = els.analysisQueryClass.value;
   const blueprints = Object.keys(catalog[className] || {});
   const previousBlueprint = els.analysisQueryBlueprint.value;
-
   if (resetBlueprint || !blueprints.includes(previousBlueprint)) {
-    els.analysisQueryBlueprint.innerHTML = blueprints
-      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
-      .join("");
+    els.analysisQueryBlueprint.innerHTML = blueprints.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
     els.analysisQueryBlueprint.value = blueprints.includes("Cañón") ? "Cañón" : blueprints[0];
   }
 
   const blueprint = els.analysisQueryBlueprint.value;
   const technologies = [...new Set(["Normal", ...(catalog[className]?.[blueprint] || [])])];
   const previousTechnology = els.analysisQueryTechnology.value;
-
   if (resetTechnology || !technologies.includes(previousTechnology)) {
-    els.analysisQueryTechnology.innerHTML = technologies
-      .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
-      .join("");
-    els.analysisQueryTechnology.value = technologies.includes("Potente")
-      ? "Potente"
-      : technologies[0];
+    els.analysisQueryTechnology.innerHTML = technologies.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+    els.analysisQueryTechnology.value = technologies.includes("Potente") ? "Potente" : technologies[0];
   }
 }
 
@@ -1563,8 +1672,8 @@ function renderRecent() {
     return `<div class="recent-item">
       <div class="type-pill">${record.remnant_type}</div>
       <div class="recent-copy">
-        <strong>${esc(record.blueprint)} · ${esc(record.technology)}</strong>
-        <small>${esc(record.class_name)}${pilot}${record.server_restarts ? ` · Ciclo #${record.server_restarts.cycle_number} · pos. #${record.cycle_position}` : " · Sin ciclo"}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
+        <strong>${esc(recordSummary(record))}</strong>
+        <small>${isModernXcRecord(record) ? "Mejora XC" : esc(record.class_name)}${pilot}${record.server_restarts ? ` · Ciclo #${record.server_restarts.cycle_number} · pos. #${record.cycle_position}` : " · Sin ciclo"}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
       </div>
       <div class="recent-time">${spainTime(record.created_at)}</div>
     </div>`;
@@ -1595,7 +1704,7 @@ function renderHistory() {
       <td><strong>${record.remnant_type}</strong></td>
       <td>${esc(record.class_name)}</td>
       <td>${esc(record.blueprint)}</td>
-      <td>${esc(record.technology)}</td>
+      <td>${esc(recordTechnologyForDisplay(record))}</td>
       <td>${extraDataHtml(record)}</td>
       <td>${record.evidence_path
         ? `<button type="button" class="evidence-btn" data-id="${record.id}">Ver foto</button>`
@@ -1651,6 +1760,7 @@ function applyAdminUi() {
   els.registerRestartBtn.classList.toggle("hidden", !admin);
   els.manageFieldsBtn.classList.toggle("hidden", !admin);
   els.exportBtn.classList.toggle("hidden", !admin);
+  updatePilotUi();
 
   if (admin) {
     els.adminIdentity.textContent = currentUser.email || "Superusuario";
@@ -1674,14 +1784,15 @@ function applyAdminUi() {
 
 async function findRecentDuplicate() {
   const cutoff = new Date(Date.now() - (DUPLICATE_WINDOW_MINUTES * 60 * 1000)).toISOString();
+  const fields = currentEntryFields();
 
   let query = sb
     .from("remnant_records")
     .select("id, created_at, cycle_position, server_restart_id")
     .eq("remnant_type", selectedType)
-    .eq("class_name", els.classSelect.value)
-    .eq("blueprint", els.blueprintSelect.value)
-    .eq("technology", selectedTechnology)
+    .eq("class_name", fields.class_name)
+    .eq("blueprint", fields.blueprint)
+    .eq("technology", fields.technology)
     .gte("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -1729,7 +1840,12 @@ async function saveCurrentRecord() {
   let newEvidencePath = null;
 
   try {
+    if (isAnonymousUser() && !anonymousPilotName.trim()) {
+      await ensureAnonymousPilot(true);
+      throw new Error("Escribe tu nombre de piloto para continuar.");
+    }
     const extraData = collectExtraData();
+    const fields = currentEntryFields();
 
     if (!editingRecordId && !isSuperAdmin()) {
       const duplicate = await findRecentDuplicate();
@@ -1759,9 +1875,9 @@ async function saveCurrentRecord() {
 
       const payload = {
         remnant_type: selectedType,
-        class_name: els.classSelect.value,
-        blueprint: els.blueprintSelect.value,
-        technology: selectedTechnology,
+        class_name: fields.class_name,
+        blueprint: fields.blueprint,
+        technology: fields.technology,
         extra_data: extraData,
         evidence_path: finalEvidencePath,
         updated_at: new Date().toISOString(),
@@ -1789,13 +1905,13 @@ async function saveCurrentRecord() {
 
       cancelEditMode(false);
       await refreshDashboardData();
-      els.feedback.textContent = `✓ Registro actualizado: ${data.remnant_type} · ${data.blueprint} · ${data.technology}.`;
+      els.feedback.textContent = `✓ Registro actualizado: ${data.remnant_type} · ${recordSummary(data)}.`;
     } else {
       const payload = {
         remnant_type: selectedType,
-        class_name: els.classSelect.value,
-        blueprint: els.blueprintSelect.value,
-        technology: selectedTechnology,
+        class_name: fields.class_name,
+        blueprint: fields.blueprint,
+        technology: fields.technology,
         extra_data: extraData,
         evidence_path: newEvidencePath
       };
@@ -1820,7 +1936,7 @@ async function saveCurrentRecord() {
       currentPage = 1;
       resetEntryForm();
       await refreshDashboardData();
-      els.feedback.textContent = `✓ ${data.remnant_type} · ${data.blueprint} · ${data.technology} registrado a las ${spainTime(data.created_at)} (hora España).`;
+      els.feedback.textContent = `✓ ${data.remnant_type} · ${recordSummary(data)} registrado a las ${spainTime(data.created_at)} (hora España).`;
     }
   } catch (error) {
     els.feedback.textContent = `No se pudo guardar: ${error.message}`;
@@ -1832,6 +1948,9 @@ async function saveCurrentRecord() {
 function resetEntryForm() {
   setEvidencePreview(null);
   els.evidenceInput.value = "";
+  els.xcUpgradeDetail.value = "";
+  editingLegacyXc = false;
+  updateEntryMode();
   els.removeExistingEvidence.checked = false;
   els.existingEvidenceBox.classList.add("hidden");
   renderDynamicFields({});
@@ -1846,11 +1965,17 @@ function beginEditRecord(id) {
   editingRecordId = record.id;
   editingOriginalEvidencePath = record.evidence_path || null;
 
-  setSelectedType(record.remnant_type);
-  els.classSelect.value = record.class_name;
-  populateBlueprints();
-  els.blueprintSelect.value = record.blueprint;
-  populateTechnologies(record.technology);
+  editingLegacyXc = record.remnant_type === "XC" && !isModernXcRecord(record);
+  setSelectedType(record.remnant_type, { preserveLegacy: true });
+  if (isModernXcRecord(record)) {
+    els.xcUpgradeType.value = record.class_name;
+    els.xcUpgradeDetail.value = record.blueprint;
+  } else {
+    els.classSelect.value = record.class_name;
+    populateBlueprints();
+    els.blueprintSelect.value = record.blueprint;
+    populateTechnologies(record.technology);
+  }
   renderDynamicFields(record.extra_data || {});
 
   setEvidencePreview(null);
@@ -1859,7 +1984,7 @@ function beginEditRecord(id) {
   els.existingEvidenceBox.classList.toggle("hidden", !editingOriginalEvidencePath);
 
   els.entryEyebrow.textContent = "EDITAR REGISTRO";
-  els.entryTitle.textContent = `${record.remnant_type} · ${record.blueprint}`;
+  els.entryTitle.textContent = `${record.remnant_type} · ${isModernXcRecord(record) ? record.class_name : record.blueprint}`;
   els.entryBadge.textContent = "Edición admin";
   els.saveBtn.querySelector("span").textContent = "Guardar cambios";
   els.cancelEditBtn.classList.remove("hidden");
@@ -1870,6 +1995,7 @@ function beginEditRecord(id) {
 function cancelEditMode(clearFeedback = true) {
   editingRecordId = null;
   editingOriginalEvidencePath = null;
+  editingLegacyXc = false;
   els.entryEyebrow.textContent = "NUEVO REGISTRO";
   els.entryTitle.textContent = "Registrar remanente";
   els.entryBadge.textContent = isSuperAdmin() ? "Alta manual admin" : "Data entry";
@@ -1885,7 +2011,7 @@ async function deleteRecord(id) {
   const record = records.find(r => String(r.id) === String(id));
   if (!record) return;
 
-  if (!confirm(`Eliminar definitivamente ${record.remnant_type} · ${record.blueprint} · ${record.technology}?`)) return;
+  if (!confirm(`Eliminar definitivamente ${record.remnant_type} · ${recordSummary(record)}?`)) return;
 
   els.feedback.textContent = "Eliminando registro…";
 
@@ -1928,7 +2054,7 @@ async function openEvidence(idOrRecord) {
     return;
   }
 
-  els.dialogTitle.textContent = `${record.remnant_type} · ${record.blueprint} · ${record.technology}`;
+  els.dialogTitle.textContent = `${record.remnant_type} · ${recordSummary(record)}`;
   els.dialogImage.src = data.signedUrl;
   els.evidenceDialog.showModal();
 }
@@ -2305,6 +2431,7 @@ async function privateLogout(message = "Sesión privada cerrada.") {
   currentUser = null;
   editingRecordId = null;
   await ensureSession();
+  await ensureAnonymousPilot();
   await loadFormFields();
   await refreshDashboardData();
   applyAdminUi();
@@ -2710,6 +2837,28 @@ els.nextPageBtn.addEventListener("click", async () => {
 els.exportBtn.addEventListener("click", exportCsv);
 els.closeDialogBtn.addEventListener("click", () => els.evidenceDialog.close());
 
+els.pilotForm.addEventListener("submit", event => {
+  event.preventDefault();
+  const pilot = els.pilotNameInput.value.trim().replace(/\s+/g, " ");
+  if (pilot.length < 2) {
+    els.pilotFeedback.textContent = "Escribe un nombre de piloto válido.";
+    return;
+  }
+  anonymousPilotName = pilot;
+  sessionStorage.setItem(PILOT_SESSION_KEY, pilot);
+  els.pilotFeedback.textContent = "";
+  els.pilotDialog.close();
+  updatePilotUi();
+  renderDynamicFields(editingRecordId ? records.find(r => r.id === editingRecordId)?.extra_data || {} : {});
+  els.feedback.textContent = `✓ Piloto activo: ${pilot}.`;
+});
+
+els.pilotDialog.addEventListener("cancel", event => {
+  if (isAnonymousUser() && !anonymousPilotName) event.preventDefault();
+});
+
+els.changePilotBtn.addEventListener("click", () => ensureAnonymousPilot(true));
+
 els.adminLoginBtn.addEventListener("click", async () => {
   if (isPrivateUser()) {
     await privateLogout();
@@ -2753,7 +2902,10 @@ document.querySelectorAll(".analysis-tab").forEach(button => {
 els.analysisCommonType.addEventListener("change", renderAnalysisCommons);
 els.analysisCommonTarget.addEventListener("change", renderAnalysisCommons);
 
-els.analysisQueryType.addEventListener("change", renderAnalysisQuery);
+els.analysisQueryType.addEventListener("change", () => {
+  populateAnalysisQueryControls(true, true);
+  renderAnalysisQuery();
+});
 els.analysisQueryClass.addEventListener("change", () => {
   populateAnalysisQueryControls(true, true);
   renderAnalysisQuery();
@@ -2793,6 +2945,7 @@ els.fieldType.addEventListener("change", () => {
 
 (async function init() {
   populateClasses();
+  updateEntryMode();
   updateClock();
   setInterval(updateClock, 1000);
 
@@ -2817,6 +2970,7 @@ els.fieldType.addEventListener("change", () => {
       applyAdminUi();
     }
 
+    await ensureAnonymousPilot();
     await loadFormFields();
     await refreshDashboardData();
     els.feedback.textContent = isAnalysisViewer()

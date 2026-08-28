@@ -420,3 +420,16 @@ footer {
   .filters { grid-template-columns: 1fr; }
   .history-head { align-items: end; }
 }
+
+
+/* V4.0 · identificación de piloto y captura XC */
+.entry-mode-fields { display: grid; gap: 0; }
+#xcUpgradeDetail { width: 100%; }
+.pilot-dialog { width: min(430px, calc(100% - 28px)); }
+.pilot-dialog::backdrop { background: rgba(2, 8, 16, .82); backdrop-filter: blur(5px); }
+.pilot-form { display: grid; gap: 12px; padding: 4px; }
+.pilot-form h3 { margin: 0; }
+.pilot-form p:not(.feedback) { margin: -3px 0 2px; color: var(--muted); line-height: 1.45; font-size: .86rem; }
+.pilot-form label { color: #d7e4ef; font-size: .82rem; font-weight: 650; }
+.pilot-form input { width: 100%; border: 1px solid rgba(147,179,205,.2); background: #091626; color: var(--text); border-radius: 12px; padding: 13px 14px; outline: none; }
+.pilot-form .primary-btn { width: 100%; justify-content: space-between; }
