@@ -575,3 +575,85 @@ grant usage, select on sequence public.analysis_access_logs_id_seq to service_ro
 -- No se crean políticas de navegador para estas tablas.
 -- La gestión y lectura de la auditoría se hace únicamente a través de la Edge Function
 -- `analysis-access`, que valida el rol `super_admin` en app_metadata.
+
+
+-- V4.1 · apariciones observadas pero no destruidas
+alter table public.remnant_records
+  add column if not exists observation_status text not null default 'confirmed';
+
+alter table public.remnant_records
+  drop constraint if exists remnant_records_observation_status_check;
+
+alter table public.remnant_records
+  add constraint remnant_records_observation_status_check
+  check (observation_status in ('confirmed', 'passed'));
+
+alter table public.remnant_records
+  alter column blueprint drop not null,
+  alter column technology drop not null;
+
+alter table public.remnant_records
+  drop constraint if exists remnant_records_observation_payload_check;
+
+alter table public.remnant_records
+  add constraint remnant_records_observation_payload_check
+  check (
+    (observation_status = 'confirmed' and blueprint is not null and technology is not null)
+    or
+    (observation_status = 'passed' and blueprint is null and technology is null)
+  );
+
+create or replace function public.prevent_recent_duplicate_remnant()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  is_super_admin boolean;
+begin
+  new.created_at := now();
+
+  is_super_admin :=
+    coalesce((((select auth.jwt()) -> 'app_metadata' ->> 'role') = 'super_admin'), false)
+    and coalesce((((select auth.jwt()) ->> 'is_anonymous')::boolean), false) = false;
+
+  if is_super_admin then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from public.remnant_records rr
+    where rr.server_restart_id is not distinct from new.server_restart_id
+      and rr.observation_status = new.observation_status
+      and rr.remnant_type = new.remnant_type
+      and rr.class_name = new.class_name
+      and rr.blueprint is not distinct from new.blueprint
+      and rr.technology is not distinct from new.technology
+      and rr.created_at >= (now() - interval '1 hour')
+  ) then
+    raise exception using
+      errcode = '23P01',
+      message = 'duplicate remnant observation within 1 hour',
+      detail = 'The same remnant observation already exists in the current server cycle within the last hour.',
+      constraint = 'remnant_records_no_recent_duplicates';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_recent_duplicate_remnant() from public, anon, authenticated;
+
+drop index if exists public.remnant_records_duplicate_guard_idx;
+create index remnant_records_duplicate_guard_idx
+on public.remnant_records (
+  server_restart_id,
+  observation_status,
+  remnant_type,
+  class_name,
+  blueprint,
+  technology,
+  created_at desc
+);

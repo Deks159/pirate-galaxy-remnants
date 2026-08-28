@@ -318,3 +318,31 @@ Al acceder con una sesión anónima, el panel solicita obligatoriamente el nombr
 Los XC nuevos ya no usan el catálogo tradicional de planos/tecnologías. El formulario XC permite seleccionar `Mejora de aleación`, `Mejora estela de motor` o `Mejora ranura de componente`, y pide un texto libre con el detalle exacto observado. Para conservar el esquema actual, el tipo de mejora se guarda en `class_name`, el detalle libre en `blueprint` y `technology` se guarda internamente como `Normal` (la interfaz muestra `—`). Los XC históricos permanecen intactos y SC conserva clase → plano → tecnología.
 
 La consulta de análisis admite también los XC modernos y carga los detalles observados desde el histórico. No se requiere migración nueva de Supabase para esta versión.
+
+
+## Apariciones no destruidas (V4.1)
+
+Hay remanentes que se observan pero se dejan pasar sin destruirlos. Esos eventos son importantes
+para reconstruir la rotación, aunque no exista un drop confirmado.
+
+El formulario incorpora **Resultado de la aparición**:
+
+- `Destruido / confirmado`: flujo normal. SC registra clase, plano y tecnología; XC registra tipo de mejora y detalle.
+- `Se dejó pasar`: registra únicamente lo que realmente se conoce.
+  - SC: tipo de remanente + clase visible (por ejemplo `Tormenta`).
+  - XC: tipo de remanente + tipo de mejora/componente identificable.
+  - `blueprint` y `technology` quedan `NULL`; no se inventa información.
+
+En base de datos se usa `observation_status` con `confirmed` o `passed`. Todos los registros anteriores
+quedan automáticamente como `confirmed`.
+
+Los eventos `passed` reciben `cycle_position` exactamente igual que los destruidos, por lo que cuentan
+como una aparición dentro de la secuencia. El panel de análisis los incluye en el total y en la secuencia,
+pero los excluye de cálculos que requieren un plano/tecnología exactos. Así una aparición que se dejó pasar
+no se convierte artificialmente en un hueco de la rotación.
+
+La prevención de duplicados de 1 hora también se aplica a las apariciones no destruidas usando
+`resultado + tipo + clase/tipo conocido`. El superadministrador conserva su excepción.
+
+La migración V4.1 ya fue aplicada al proyecto Supabase conectado. No ejecutes `supabase/schema.sql`
+manualmente al publicar esta versión.

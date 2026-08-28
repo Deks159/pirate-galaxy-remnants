@@ -71,14 +71,19 @@ const sb = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPAB
 const $ = selector => document.querySelector(selector);
 const els = {
   spainClock: $("#spainClock"),
+  observationStatusGroup: $("#observationStatusGroup"),
+  passedObservationHelp: $("#passedObservationHelp"),
   remnantTypeGroup: $("#remnantTypeGroup"),
   xcFields: $("#xcFields"),
   scFields: $("#scFields"),
   xcUpgradeType: $("#xcUpgradeType"),
   xcUpgradeDetail: $("#xcUpgradeDetail"),
+  xcUpgradeDetailField: $("#xcUpgradeDetailField"),
   classSelect: $("#classSelect"),
   blueprintSelect: $("#blueprintSelect"),
+  scBlueprintField: $("#scBlueprintField"),
   technologyGroup: $("#technologyGroup"),
+  scTechnologyField: $("#scTechnologyField"),
   dynamicFields: $("#dynamicFields"),
   evidenceInput: $("#evidenceInput"),
   uploadBox: document.querySelector(".upload-box"),
@@ -219,6 +224,7 @@ const els = {
 };
 
 let selectedType = "XC";
+let selectedObservationStatus = "confirmed";
 let selectedTechnology = "Normal";
 let evidenceBlob = null;
 let evidencePreviewUrl = null;
@@ -271,7 +277,17 @@ function isModernXcRecord(record) {
   return record?.remnant_type === "XC" && XC_UPGRADE_TYPES.includes(record?.class_name);
 }
 
+function isPassedRecord(record) {
+  return record?.observation_status === "passed";
+}
+
 function currentEntryFields() {
+  if (selectedObservationStatus === "passed") {
+    return selectedType === "XC" && !editingLegacyXc
+      ? { class_name: els.xcUpgradeType.value, blueprint: null, technology: null }
+      : { class_name: els.classSelect.value, blueprint: null, technology: null };
+  }
+
   if (selectedType === "XC" && !editingLegacyXc) {
     const detail = els.xcUpgradeDetail.value.trim();
     if (!detail) throw new Error("Escribe el detalle exacto de la mejora XC.");
@@ -281,24 +297,46 @@ function currentEntryFields() {
 }
 
 function recordTechnologyForDisplay(record) {
-  return isModernXcRecord(record) ? "—" : record.technology;
+  return isPassedRecord(record) || isModernXcRecord(record) ? "—" : (record.technology || "—");
+}
+
+function recordBlueprintForDisplay(record) {
+  return isPassedRecord(record) ? "No confirmado" : (record.blueprint || "—");
 }
 
 function recordSummary(record) {
+  if (isPassedRecord(record)) return `${record.class_name} · no destruido`;
   return isModernXcRecord(record)
     ? `${record.class_name} · ${record.blueprint}`
     : `${record.blueprint} · ${record.technology}`;
 }
 
+function setObservationStatus(value) {
+  selectedObservationStatus = value === "passed" ? "passed" : "confirmed";
+  els.observationStatusGroup.querySelectorAll(".segment")
+    .forEach(btn => btn.classList.toggle("active", btn.dataset.value === selectedObservationStatus));
+  updateEntryMode();
+}
+
 function updateEntryMode() {
   const modernXc = selectedType === "XC" && !editingLegacyXc;
+  const passed = selectedObservationStatus === "passed";
+
   els.xcFields.classList.toggle("hidden", !modernXc);
   els.scFields.classList.toggle("hidden", modernXc);
-  if (modernXc) {
-    selectedTechnology = "Normal";
-    els.entryTitle.textContent = editingRecordId ? "Editar mejora XC" : "Registrar mejora XC";
-  } else if (!editingRecordId) {
-    els.entryTitle.textContent = "Registrar remanente";
+  els.xcUpgradeDetailField.classList.toggle("hidden", !modernXc || passed);
+  els.scBlueprintField.classList.toggle("hidden", modernXc || passed);
+  els.scTechnologyField.classList.toggle("hidden", modernXc || passed);
+  els.passedObservationHelp.classList.toggle("hidden", !passed);
+
+  if (modernXc) selectedTechnology = "Normal";
+
+  if (!editingRecordId) {
+    if (passed) els.entryTitle.textContent = "Registrar remanente no destruido";
+    else if (modernXc) els.entryTitle.textContent = "Registrar mejora XC";
+    else els.entryTitle.textContent = "Registrar remanente";
+
+    els.saveBtn.querySelector("span").textContent = passed ? "Registrar observación" : "Registrar remanente";
   }
 }
 
@@ -924,11 +962,16 @@ function percent(value, digits = 1) {
 }
 
 function comboLabel(record, includeType = false) {
-  const base = `${record.class_name} · ${record.blueprint} · ${record.technology}`;
+  const base = isPassedRecord(record)
+    ? `${record.class_name} · no destruido`
+    : (isModernXcRecord(record)
+      ? `${record.class_name} · ${record.blueprint}`
+      : `${record.class_name} · ${record.blueprint} · ${record.technology}`);
   return includeType ? `${record.remnant_type} · ${base}` : base;
 }
 
 function commonState(record) {
+  if (isPassedRecord(record) || !record.blueprint || !record.technology) return null;
   return `${record.blueprint} · ${record.technology}`;
 }
 
@@ -1137,6 +1180,7 @@ async function loadAnalyticsRecords() {
         class_name,
         blueprint,
         technology,
+        observation_status,
         evidence_path,
         created_at,
         extra_data,
@@ -1168,14 +1212,16 @@ function renderAnalysisSummary() {
   const preCycle = total - withCycle;
   const cycles = cycleGroups();
   const commons = analyticsRecords.filter(row => row.class_name === "Comunes");
-  const distinctCommon = new Set(commons.map(commonState)).size;
+  const distinctCommon = new Set(commons.map(commonState).filter(Boolean)).size;
+  const passed = analyticsRecords.filter(row => isPassedRecord(row));
 
   els.analysisSummaryMetrics.innerHTML = [
-    analysisMetric("Registros", String(total), "histórico completo"),
+    analysisMetric("Registros", String(total), "apariciones observadas"),
+    analysisMetric("No destruidos", String(passed.length), percent(total ? passed.length / total : 0)),
     analysisMetric("Con evidencia", percent(total ? withEvidence / total : 0), `${withEvidence} de ${total}`),
     analysisMetric("Con ciclo", percent(total ? withCycle / total : 0), `${withCycle} asociados`),
     analysisMetric("Ciclos", String(cycles.length), `${preCycle} registros previos a ciclos`),
-    analysisMetric("Comunes", String(commons.length), `${distinctCommon}/${expectedCommonStates().length} combinaciones observadas`)
+    analysisMetric("Comunes", String(commons.length), `${distinctCommon}/${expectedCommonStates().length} combinaciones confirmadas`)
   ].join("");
 
   els.analysisCyclesBody.innerHTML = cycles.length
@@ -1216,7 +1262,7 @@ function renderAnalysisSummary() {
 
   const current = latestCycleGroup();
   const currentCommonRows = current?.rows.filter(row => row.class_name === "Comunes") || [];
-  const currentDistinctCommon = new Set(currentCommonRows.map(commonState)).size;
+  const currentDistinctCommon = new Set(currentCommonRows.map(commonState).filter(Boolean)).size;
 
   const cannonPower = commonStatsForState("Cañón · Potente");
   const cannonDetail = cannonPower.intervals.length
@@ -1227,6 +1273,12 @@ function renderAnalysisSummary() {
     {
       title: "Distribución XC / SC",
       body: `${sc} SC (${percent(total ? sc / total : 0)}) y ${xc} XC (${percent(total ? xc / total : 0)}).`
+    },
+    {
+      title: "Remanentes no destruidos",
+      body: passed.length
+        ? `${passed.length} apariciones se dejaron pasar. Conservan su posición en el ciclo y la clase/tipo conocido, pero no se usan como si tuvieran plano o tecnología confirmados.`
+        : "Todavía no hay apariciones marcadas como no destruidas."
     },
     {
       title: "Cobertura de comunes",
@@ -1292,7 +1344,7 @@ function renderAnalysisCommons() {
       analyticsRecords.filter(commonBasePredicate).length
     ), els.analysisCommonType.value || "XC + SC"),
     analysisMetric("Combinaciones distintas", String(
-      new Set(analyticsRecords.filter(commonBasePredicate).map(commonState)).size
+      new Set(analyticsRecords.filter(commonBasePredicate).map(commonState).filter(Boolean)).size
     ), `${expectedCommonStates().length} esperadas`),
     analysisMetric(`Apariciones: ${targetState}`, String(target.count), `${target.intervals.length} intervalos útiles`),
     analysisMetric("Mediana del intervalo", target.median == null ? "—" : `${fmtNumber(target.median)} comunes`, "solo dentro del mismo ciclo"),
@@ -1400,7 +1452,8 @@ function populateAnalysisQueryControls(resetBlueprint = false, resetTechnology =
 
 function queryCombinationPredicate(row) {
   const type = els.analysisQueryType.value;
-  return (!type || row.remnant_type === type)
+  return !isPassedRecord(row)
+    && (!type || row.remnant_type === type)
     && row.class_name === els.analysisQueryClass.value
     && row.blueprint === els.analysisQueryBlueprint.value
     && row.technology === els.analysisQueryTechnology.value;
@@ -1673,7 +1726,7 @@ function renderRecent() {
       <div class="type-pill">${record.remnant_type}</div>
       <div class="recent-copy">
         <strong>${esc(recordSummary(record))}</strong>
-        <small>${isModernXcRecord(record) ? "Mejora XC" : esc(record.class_name)}${pilot}${record.server_restarts ? ` · Ciclo #${record.server_restarts.cycle_number} · pos. #${record.cycle_position}` : " · Sin ciclo"}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
+        <small>${isModernXcRecord(record) ? "Mejora XC" : esc(record.class_name)}${isPassedRecord(record) ? " · ⏭ no destruido" : ""}${pilot}${record.server_restarts ? ` · Ciclo #${record.server_restarts.cycle_number} · pos. #${record.cycle_position}` : " · Sin ciclo"}${record.evidence_path ? " · 📷 evidencia" : ""}</small>
       </div>
       <div class="recent-time">${spainTime(record.created_at)}</div>
     </div>`;
@@ -1702,8 +1755,11 @@ function renderHistory() {
         ? `<span class="cycle-cell"><strong>#${record.server_restarts.cycle_number}</strong><small>posición ${record.cycle_position ?? "—"}</small></span>`
         : '<span class="no-evidence">Sin ciclo</span>'}</td>
       <td><strong>${record.remnant_type}</strong></td>
+      <td>${isPassedRecord(record)
+        ? '<span class="observation-pill passed">No destruido</span>'
+        : '<span class="observation-pill confirmed">Confirmado</span>'}</td>
       <td>${esc(record.class_name)}</td>
-      <td>${esc(record.blueprint)}</td>
+      <td>${esc(recordBlueprintForDisplay(record))}</td>
       <td>${esc(recordTechnologyForDisplay(record))}</td>
       <td>${extraDataHtml(record)}</td>
       <td>${record.evidence_path
@@ -1789,14 +1845,19 @@ async function findRecentDuplicate() {
   let query = sb
     .from("remnant_records")
     .select("id, created_at, cycle_position, server_restart_id")
+    .eq("observation_status", selectedObservationStatus)
     .eq("remnant_type", selectedType)
     .eq("class_name", fields.class_name)
-    .eq("blueprint", fields.blueprint)
-    .eq("technology", fields.technology)
     .gte("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(1);
 
+  query = fields.blueprint == null
+    ? query.is("blueprint", null)
+    : query.eq("blueprint", fields.blueprint);
+  query = fields.technology == null
+    ? query.is("technology", null)
+    : query.eq("technology", fields.technology);
   query = currentCycle?.id
     ? query.eq("server_restart_id", currentCycle.id)
     : query.is("server_restart_id", null);
@@ -1875,6 +1936,7 @@ async function saveCurrentRecord() {
 
       const payload = {
         remnant_type: selectedType,
+        observation_status: selectedObservationStatus,
         class_name: fields.class_name,
         blueprint: fields.blueprint,
         technology: fields.technology,
@@ -1909,6 +1971,7 @@ async function saveCurrentRecord() {
     } else {
       const payload = {
         remnant_type: selectedType,
+        observation_status: selectedObservationStatus,
         class_name: fields.class_name,
         blueprint: fields.blueprint,
         technology: fields.technology,
@@ -1950,6 +2013,9 @@ function resetEntryForm() {
   els.evidenceInput.value = "";
   els.xcUpgradeDetail.value = "";
   editingLegacyXc = false;
+  selectedObservationStatus = "confirmed";
+  els.observationStatusGroup.querySelectorAll(".segment")
+    .forEach(btn => btn.classList.toggle("active", btn.dataset.value === "confirmed"));
   updateEntryMode();
   els.removeExistingEvidence.checked = false;
   els.existingEvidenceBox.classList.add("hidden");
@@ -1966,15 +2032,19 @@ function beginEditRecord(id) {
   editingOriginalEvidencePath = record.evidence_path || null;
 
   editingLegacyXc = record.remnant_type === "XC" && !isModernXcRecord(record);
+  selectedObservationStatus = record.observation_status || "confirmed";
   setSelectedType(record.remnant_type, { preserveLegacy: true });
+  setObservationStatus(selectedObservationStatus);
   if (isModernXcRecord(record)) {
     els.xcUpgradeType.value = record.class_name;
-    els.xcUpgradeDetail.value = record.blueprint;
+    if (!isPassedRecord(record)) els.xcUpgradeDetail.value = record.blueprint || "";
   } else {
     els.classSelect.value = record.class_name;
     populateBlueprints();
-    els.blueprintSelect.value = record.blueprint;
-    populateTechnologies(record.technology);
+    if (!isPassedRecord(record)) {
+      els.blueprintSelect.value = record.blueprint;
+      populateTechnologies(record.technology);
+    }
   }
   renderDynamicFields(record.extra_data || {});
 
@@ -1984,7 +2054,7 @@ function beginEditRecord(id) {
   els.existingEvidenceBox.classList.toggle("hidden", !editingOriginalEvidencePath);
 
   els.entryEyebrow.textContent = "EDITAR REGISTRO";
-  els.entryTitle.textContent = `${record.remnant_type} · ${isModernXcRecord(record) ? record.class_name : record.blueprint}`;
+  els.entryTitle.textContent = `${record.remnant_type} · ${isPassedRecord(record) ? `${record.class_name} · no destruido` : (isModernXcRecord(record) ? record.class_name : record.blueprint)}`;
   els.entryBadge.textContent = "Edición admin";
   els.saveBtn.querySelector("span").textContent = "Guardar cambios";
   els.cancelEditBtn.classList.remove("hidden");
@@ -2635,7 +2705,7 @@ async function exportCsv() {
     const dynamicKeys = [...new Set(rows.flatMap(r => Object.keys(r.extra_data || {})))];
     const header = [
       "fecha_hora_espana", "ciclo", "posicion_ciclo", "servidor",
-      "tipo_remanente", "clase", "plano", "tecnologia",
+      "tipo_remanente", "resultado", "clase_componente", "plano_detalle", "tecnologia",
       ...dynamicKeys, "tiene_evidencia"
     ];
 
@@ -2645,9 +2715,10 @@ async function exportCsv() {
       record.cycle_position ?? "",
       record.server_restarts?.server_name ?? "",
       record.remnant_type,
+      isPassedRecord(record) ? "No destruido" : "Confirmado",
       record.class_name,
-      record.blueprint,
-      record.technology,
+      record.blueprint ?? "",
+      record.technology ?? "",
       ...dynamicKeys.map(key => record.extra_data?.[key] ?? ""),
       record.evidence_path ? "Sí" : "No"
     ]);
@@ -2674,6 +2745,10 @@ async function exportCsv() {
 
 els.remnantTypeGroup.querySelectorAll(".segment").forEach(btn => {
   btn.addEventListener("click", () => setSelectedType(btn.dataset.value));
+});
+
+els.observationStatusGroup.querySelectorAll(".segment").forEach(button => {
+  button.addEventListener("click", () => setObservationStatus(button.dataset.value));
 });
 
 els.classSelect.addEventListener("change", populateBlueprints);

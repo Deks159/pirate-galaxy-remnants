@@ -433,3 +433,31 @@ footer {
 .pilot-form label { color: #d7e4ef; font-size: .82rem; font-weight: 650; }
 .pilot-form input { width: 100%; border: 1px solid rgba(147,179,205,.2); background: #091626; color: var(--text); border-radius: 12px; padding: 13px 14px; outline: none; }
 .pilot-form .primary-btn { width: 100%; justify-content: space-between; }
+
+
+/* V4.1 · apariciones no destruidas */
+.observation-status .segment {
+  min-width: 0;
+}
+
+.observation-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.observation-pill.confirmed {
+  border: 1px solid rgba(94, 240, 178, .22);
+  background: rgba(94, 240, 178, .055);
+  color: #8ce9bd;
+}
+
+.observation-pill.passed {
+  border: 1px solid rgba(255, 205, 86, .28);
+  background: rgba(255, 205, 86, .06);
+  color: #f0dca2;
+}

@@ -113,6 +113,15 @@
         </div>
 
         <div class="field-group">
+          <label>Resultado de la aparición</label>
+          <div class="segmented observation-status" id="observationStatusGroup">
+            <button type="button" class="segment active" data-value="confirmed">Destruido / confirmado</button>
+            <button type="button" class="segment" data-value="passed">Se dejó pasar</button>
+          </div>
+          <small id="passedObservationHelp" class="helper-text hidden">Cuenta como una aparición dentro del ciclo, pero no inventa un plano o tecnología que no se obtuvo.</small>
+        </div>
+
+        <div class="field-group">
           <label>Tipo de remanente</label>
           <div class="segmented" id="remnantTypeGroup">
             <button type="button" class="segment active" data-value="XC">XC</button>
@@ -130,7 +139,7 @@
             </select>
           </div>
 
-          <div class="field-group">
+          <div id="xcUpgradeDetailField" class="field-group">
             <label for="xcUpgradeDetail">Detalle exacto de la mejora</label>
             <input id="xcUpgradeDetail" type="text" maxlength="180" placeholder="Escribe exactamente lo que aparece en el juego" autocomplete="off">
             <small class="helper-text">Como todavía no conocemos todas las variantes, este campo es libre. Escríbelo tal como aparece.</small>
@@ -143,12 +152,12 @@
             <select id="classSelect"></select>
           </div>
 
-          <div class="field-group">
+          <div id="scBlueprintField" class="field-group">
             <label for="blueprintSelect">Tipo de plano</label>
             <select id="blueprintSelect"></select>
           </div>
 
-          <div class="field-group">
+          <div id="scTechnologyField" class="field-group">
             <label>Tecnología</label>
             <div id="technologyGroup" class="tech-grid"></div>
             <small class="helper-text">Todos los planos incluyen la variante Normal.</small>
@@ -253,7 +262,8 @@
               <th>Fecha / hora España</th>
               <th>Ciclo / posición</th>
               <th>Tipo</th>
-              <th>Clase / tipo</th>
+              <th>Resultado</th>
+              <th>Clase / componente</th>
               <th>Plano / detalle</th>
               <th>Tecnología</th>
               <th>Datos extra</th>
